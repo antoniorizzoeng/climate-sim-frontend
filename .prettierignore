@@ -6,3 +6,4 @@ public/mockServiceWorker.js
 api/openapi.yaml
 next-env.d.ts
 package-lock.json
+artifacts/

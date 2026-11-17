@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Paintbrush, Eraser, Trash2, Waves, Blend, ScatterChart } from 'lucide-react';
 import {
   cellAt,
+  numberText,
   makePlane,
   resizePlane,
   pixels,
@@ -38,7 +39,7 @@ export function DrawingCanvas({
   const keyboardCell = useRef({ i: 0, j: 0 });
   function readCell(i: number, j: number) {
     onRead?.(
-      `x ${i} · y ${j} · u ${working.current.data[j * plane.nx + i]?.toPrecision(4)}`,
+      `x ${i} · y ${j} · u ${numberText(working.current.data[j * plane.nx + i])}`,
     );
   }
   useEffect(() => {
@@ -220,12 +221,13 @@ export function DrawingControls({
       </label>
       <label className="slider-label">
         Brush strength{' '}
-        <span className="slider-value">{Number(brush.strength.toPrecision(4))}</span>
+        <span className="slider-value">{numberText(brush.strength)}</span>
         <input
           type="range"
           min={brush.min}
           max={brush.max}
           step={(brush.max - brush.min) / 100}
+          aria-valuetext={numberText(brush.strength)}
           value={brush.strength}
           onChange={(e) => setBrush({ ...brush, strength: +e.target.value })}
         />
@@ -262,9 +264,10 @@ export function DrawingControls({
               <input
                 type="number"
                 step="any"
-                defaultValue={brush[key]}
+                defaultValue={numberText(brush[key])}
                 key={brush[key]}
                 onBlur={(e) => {
+                  if (e.target.value === numberText(brush[key])) return;
                   const v = e.target.valueAsNumber;
                   const b = { ...brush, [key]: v };
                   if (Number.isFinite(Math.fround(v)) && b.max > b.min)
@@ -272,7 +275,7 @@ export function DrawingControls({
                       ...b,
                       strength: Math.max(b.min, Math.min(b.max, b.strength)),
                     });
-                  else e.target.value = String(brush[key]);
+                  else e.target.value = numberText(brush[key]);
                 }}
               />
             </label>

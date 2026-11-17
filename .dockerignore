@@ -1,0 +1,15 @@
+.git
+.github
+.agents
+.aws
+.codex
+.env*
+*.pem
+node_modules
+.next
+.local
+artifacts
+test-results
+playwright-report
+coverage
+*.tsbuildinfo

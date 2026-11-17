@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Download, Film, ImageDown, Database } from 'lucide-react';
 import { api, checked, download, frameBlob, message, type Colors } from '@/lib/api';
+import { DecimalInput } from './DecimalInput';
 import type { ColorMap, Config, Run } from '@/lib/model';
+import { cleanRange } from '@/lib/model';
 export function Output({
   run,
   n,
@@ -17,8 +19,8 @@ export function Output({
 }) {
   const [rangeDraft, setRangeDraft] = useState<[string, string] | null>(null);
   const [min, max] = rangeDraft ?? [
-    String(colors.vmin ?? run.display_range?.[0] ?? 0),
-    String(colors.vmax ?? run.display_range?.[1] ?? 1),
+    String(colors.vmin ?? cleanRange(run.display_range)?.[0] ?? 0),
+    String(colors.vmax ?? cleanRange(run.display_range)?.[1] ?? 1),
   ];
   const [format, setFormat] = useState<'mp4' | 'gif'>('mp4'),
     [fps, setFps] = useState(12),
@@ -104,26 +106,17 @@ export function Output({
       <div className="input-grid">
         <label>
           Range minimum
-          <input
-            type="number"
-            step="any"
-            value={min}
-            onChange={(e) => updateRange(e.target.value, max)}
-          />
+          <DecimalInput value={min} onEdit={(raw) => updateRange(raw, max)} />
         </label>
         <label>
           Range maximum
-          <input
-            type="number"
-            step="any"
-            value={max}
-            onChange={(e) => updateRange(min, e.target.value)}
-          />
+          <DecimalInput value={max} onEdit={(raw) => updateRange(min, raw)} />
         </label>
       </div>
       {(+min >= +max || !min || !max) &&
         !(
-          colors.vmin === undefined && run.display_range?.[0] === run.display_range?.[1]
+          colors.vmin === undefined &&
+          cleanRange(run.display_range)?.[0] === cleanRange(run.display_range)?.[1]
         ) && <p className="hint">Enter a minimum below the maximum.</p>}
       <button
         className="subtle"

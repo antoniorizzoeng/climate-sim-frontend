@@ -20,7 +20,7 @@ import {
   UploadCloud,
   Waves,
 } from 'lucide-react';
-import { api, checked, message, saveDrawing, type Colors } from '@/lib/api';
+import { api, baseUrl, checked, message, saveDrawing, type Colors } from '@/lib/api';
 import {
   colorTable,
   defaults,
@@ -32,13 +32,16 @@ import {
   type PlaneSelection,
   type Run,
   type Source,
+  cleanRange,
 } from '@/lib/model';
 import { DrawingCanvas, DrawingControls, defaultBrush } from '@/components/Drawing';
 import { ConditionsForm } from '@/components/Conditions';
 import { Viewport } from '@/components/Viewport';
 import { Timeline } from '@/components/Timeline';
 import { UploadControls, useUploadPlane } from '@/components/Upload';
-import { PlayerImage } from '@/components/Player';
+import { Player } from '@/components/Player';
+import { Examples } from '@/components/Examples';
+import { examplePlane, exampleConditions, examples } from '@/lib/examples';
 import { Output } from '@/components/Output';
 import { History } from '@/components/History';
 
@@ -46,10 +49,11 @@ async function connect() {
   await window.startClimateMock?.();
   return checked(await api.GET('/config'));
 }
+const mockMode = process.env.NEXT_PUBLIC_MOCK_API === '1';
 const emptyColors: Colors = { colormap: 'inferno' };
 export default function Workspace() {
   const [config, setConfig] = useState<Config>(),
-    [connError, setConnError] = useState(''),
+    [connError, setConnError] = useState(false),
     [attempt, retry] = useState(0);
   const [view, setView] = useState<'workspace' | 'history'>('workspace'),
     [tab, setTab] = useState<'field' | 'conditions'>('field'),
@@ -76,14 +80,17 @@ export default function Workspace() {
     [colors, setColors] = useState<Colors>(emptyColors),
     [readout, setReadout] = useState(''),
     [pollAttempt, retryPoll] = useState(0);
+  const visualColumn = useRef<HTMLDivElement>(null);
   const [pollError, setPollError] = useState('');
+  const [presented, setPresented] = useState(-1),
+    [autoplay, setAutoplay] = useState(false);
   useEffect(() => {
     let active = true;
     connect()
       .then((c) => {
         if (!active) return;
         setConfig(c);
-        setConnError('');
+        setConnError(false);
         const first = c.supported_boundary_conditions.includes('dirichlet')
           ? 'dirichlet'
           : c.supported_boundary_conditions[0];
@@ -92,8 +99,8 @@ export default function Workspace() {
           bc: m.bc ?? { left: first, right: first, top: first, bottom: first },
         }));
       })
-      .catch((e) => {
-        if (active) setConnError(message(e));
+      .catch(() => {
+        if (active) setConnError(true);
       });
     return () => {
       active = false;
@@ -101,6 +108,10 @@ export default function Workspace() {
   }, [attempt]);
   const runId = run?.id,
     status = run?.status;
+  useEffect(() => {
+    if (runId && window.matchMedia('(max-width: 730px)').matches)
+      visualColumn.current?.scrollIntoView({ block: 'start' });
+  }, [runId]);
   useEffect(() => {
     if (!runId || !(status === 'queued' || status === 'running')) return;
     const ctrl = new AbortController();
@@ -139,7 +150,9 @@ export default function Workspace() {
     setFill(null);
     clearReview();
   }
-  function openRun(r: Run) {
+  function openRun(r: Run, play = false) {
+    setAutoplay(play && !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    setPresented(-1);
     setRun(r);
     setN(0);
     setReadout('');
@@ -175,6 +188,7 @@ export default function Workspace() {
     setPattern('Custom');
     clearReview();
   }
+  const isExample = mode === 'draw' && examples.some((e) => e.name === pattern);
   const needFill =
     !!stats?.missing_count && (fill === '' || !Number.isFinite(Number(fill)));
   const canStart =
@@ -191,7 +205,7 @@ export default function Workspace() {
         const field =
           saved.current?.plane === plane
             ? saved.current.field
-            : await saveDrawing(plane);
+            : await saveDrawing(plane, isExample ? pattern : undefined);
         saved.current = { plane, field };
         source = { kind: 'field', field_id: field.id };
       } else {
@@ -220,7 +234,7 @@ export default function Workspace() {
         reviewed.current = ticket;
         return;
       }
-      openRun(checked(await api.POST('/runs', { body })));
+      openRun(checked(await api.POST('/runs', { body })), isExample);
     } catch (e) {
       setError(message(e));
     } finally {
@@ -252,8 +266,8 @@ export default function Workspace() {
     ny = run?.resolved.ny ?? (inUpload ? (variable?.ny ?? 128) : plane.ny);
   const range = run
     ? [
-        colors.vmin ?? run.display_range?.[0] ?? 0,
-        colors.vmax ?? run.display_range?.[1] ?? 1,
+        colors.vmin ?? cleanRange(run.display_range)?.[0] ?? 0,
+        colors.vmax ?? cleanRange(run.display_range)?.[1] ?? 1,
       ]
     : inUpload
       ? [stats?.min ?? 0, stats?.max ?? 1]
@@ -300,11 +314,13 @@ export default function Workspace() {
           <div className="connection">
             <i className={'dot ' + (config ? 'green' : '')} />
             {config
-              ? process.env.NEXT_PUBLIC_MOCK_API === '1'
+              ? mockMode
                 ? 'Mock engine'
                 : 'Engine online'
               : connError
-                ? 'Engine offline'
+                ? mockMode
+                  ? 'Demo unavailable'
+                  : 'Engine offline'
                 : 'Connecting'}
           </div>
         </div>
@@ -332,9 +348,42 @@ export default function Workspace() {
         </div>
         {connError && (
           <div className="notice error" role="alert">
-            API connection failed · {connError}{' '}
+            {mockMode ? (
+              <>
+                <strong>Browser demo unavailable.</strong> Open the demo on localhost or
+                HTTPS in a browser that allows service workers, then reconnect.
+              </>
+            ) : (
+              <>
+                <strong>Engine offline.</strong> Start the backend with{' '}
+                <code>
+                  {window.location.origin !== 'http://localhost:3000' &&
+                    'CORS_ORIGINS=' + window.location.origin + ' '}
+                  docker compose up --build backend
+                </code>{' '}
+                from this repository, then reconnect. Expected API at{' '}
+                <code>{baseUrl}</code>.
+              </>
+            )}{' '}
             <button onClick={() => retry((x) => x + 1)}>Reconnect</button>
           </div>
+        )}
+        {view === 'workspace' && !run && (
+          <Examples
+            selected={mode === 'draw' ? pattern : ''}
+            disabled={busy || !config}
+            choose={(example) => {
+              if (!config) return;
+              edit(examplePlane(example));
+              setConditions(
+                exampleConditions(example, config.supported_boundary_conditions),
+              );
+              setBrush(defaultBrush);
+              setPattern(example.name);
+              setMode('draw');
+              setReadout('');
+            }}
+          />
         )}
         {view === 'history' ? (
           config ? (
@@ -344,51 +393,83 @@ export default function Workspace() {
           )
         ) : (
           <div className="workspace-grid">
-            <div className="visual-column">
-              <Viewport
-                nx={nx}
-                ny={ny}
-                map={run ? colors.colormap : inUpload ? previewMap : 'inferno'}
-                range={range}
-                mode={run ? 'Run output' : 'Initial field'}
-                readout={readout}
-              >
-                {run ? (
-                  <PlayerImage run={run} n={n} colors={colors} onRead={setReadout} />
-                ) : mode === 'draw' ? (
-                  <DrawingCanvas
-                    plane={plane}
-                    brush={brush}
-                    change={edit}
-                    onRead={setReadout}
-                  />
-                ) : uploaded.url ? (
-                  <Image
-                    unoptimized
-                    width={nx}
-                    height={ny}
-                    src={uploaded.url}
-                    alt="Selected NetCDF plane preview"
-                    style={{
-                      background:
-                        fill !== '' && fillColor
-                          ? 'rgb(' + fillColor.join(',') + ')'
-                          : undefined,
-                    }}
-                  />
-                ) : (
-                  <div className="plot-message">
-                    <Layers2 size={28} />
-                    {uploaded.error ??
-                      (selection?.field.state === 'archived'
-                        ? 'Archived · preview unavailable'
-                        : selection
-                          ? 'Loading plane…'
-                          : 'Upload a field to preview its values.')}
-                  </div>
-                )}
-              </Viewport>
-              <Timeline key={runId ?? 'setup'} run={run} n={n} setN={setN} />
+            <div ref={visualColumn} className="visual-column">
+              {run ? (
+                <Player
+                  key={run.id}
+                  run={run}
+                  n={n}
+                  colors={colors}
+                  onRead={setReadout}
+                  readout={readout}
+                  range={range}
+                  onPresent={setPresented}
+                />
+              ) : (
+                <Viewport
+                  nx={nx}
+                  ny={ny}
+                  map={inUpload ? previewMap : 'inferno'}
+                  range={range}
+                  mode="Initial field"
+                  readout={readout}
+                >
+                  {mode === 'draw' ? (
+                    <DrawingCanvas
+                      plane={plane}
+                      brush={brush}
+                      change={edit}
+                      onRead={setReadout}
+                    />
+                  ) : uploaded.url ? (
+                    <Image
+                      unoptimized
+                      width={nx}
+                      height={ny}
+                      src={uploaded.url}
+                      alt="Selected NetCDF plane preview"
+                      style={{
+                        background:
+                          fill !== '' && fillColor
+                            ? 'rgb(' + fillColor.join(',') + ')'
+                            : undefined,
+                      }}
+                    />
+                  ) : (
+                    <div className="plot-message">
+                      <Layers2 size={28} />
+                      {uploaded.error ??
+                        (selection?.field.state === 'archived'
+                          ? 'Archived · preview unavailable'
+                          : selection
+                            ? 'Loading plane…'
+                            : 'Upload a field to preview its values.')}
+                    </div>
+                  )}
+                </Viewport>
+              )}
+              <Timeline
+                key={'timeline-' + (runId ?? 'setup')}
+                run={run}
+                n={n}
+                setN={setN}
+                ready={presented === n}
+                autoplay={autoplay && !!run}
+              />
+              <details className="panel explainer">
+                <summary>What am I looking at?</summary>
+                <p>
+                  Color shows the amount of tracer in each cell.{' '}
+                  <strong>Advection</strong> carries it with the wind.{' '}
+                  <strong>Diffusion</strong> spreads it from high concentrations to low
+                  ones.
+                </p>
+                <p>
+                  The stability limit is the largest safe time step for this grid, wind
+                  and diffusion. The workspace lowers the time step when those settings
+                  require it.
+                </p>
+              </details>
             </div>
             <aside className="panel inspector">
               <header className="panel-head">
@@ -496,6 +577,7 @@ export default function Workspace() {
                             Draw field
                           </button>
                           <button
+                            disabled={!config}
                             aria-pressed={mode === 'upload'}
                             onClick={() => {
                               setMode('upload');
@@ -553,6 +635,7 @@ export default function Workspace() {
                         model={conditions}
                         change={(m) => {
                           setConditions(m);
+                          if (isExample) setPattern('Custom');
                           clearReview();
                         }}
                         config={config}

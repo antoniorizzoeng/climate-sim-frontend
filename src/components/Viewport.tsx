@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Grid2X2, Maximize2, ScanLine } from 'lucide-react';
 import { gradient, numberText, type ColorMap } from '@/lib/model';
 
@@ -10,18 +10,56 @@ type Props = {
   children: React.ReactNode;
   mode: string;
   readout?: string;
+  controls?: React.ReactNode;
+  reference?: React.ReactNode;
+  currentLabel?: string;
+  chart?: React.ReactNode;
 };
-export function Viewport({ nx, ny, map, range, children, mode, readout }: Props) {
+export function Viewport({
+  nx,
+  ny,
+  map,
+  range,
+  children,
+  mode,
+  readout,
+  controls,
+  reference,
+  currentLabel,
+  chart,
+}: Props) {
   const [grid, setGrid] = useState(true),
     [expanded, setExpanded] = useState(false);
-  return (
-    <section
-      className={'panel viewport' + (expanded ? ' expanded' : '')}
-      aria-label="Field viewport"
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') setExpanded(false);
-      }}
-    >
+  const dialog = useRef<HTMLDialogElement>(null),
+    expandButton = useRef<HTMLButtonElement>(null);
+  const opened = useRef(false);
+  useLayoutEffect(() => {
+    if (expanded) {
+      dialog.current?.showModal();
+      opened.current = true;
+    }
+    if (opened.current) expandButton.current?.focus();
+  }, [expanded]);
+  const plot = (content: React.ReactNode) => (
+    <div className="plot-wrap">
+      <div className="y-axis">
+        {[1, 0.75, 0.5, 0.25, 0].map((f) => (
+          <span key={f}>{Math.round(f * (ny - 1))}</span>
+        ))}
+      </div>
+      <div className="plot" style={{ aspectRatio: String(nx / ny) }}>
+        {content}
+        {grid && <div className="grid-overlay" />}
+      </div>
+      <div className="x-axis">
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+          <span key={f}>{Math.round(f * (nx - 1))}</span>
+        ))}
+      </div>
+    </div>
+  );
+  const body = (
+    <>
       <header className="panel-head">
         <h2>
           <ScanLine size={17} />
@@ -40,8 +78,9 @@ export function Viewport({ nx, ny, map, range, children, mode, readout }: Props)
           </button>
           <button
             className="icon-btn"
-            title="Expand viewport"
-            aria-label="Expand viewport"
+            ref={expandButton}
+            title={expanded ? 'Close expanded viewport' : 'Expand viewport'}
+            aria-label={expanded ? 'Close expanded viewport' : 'Expand viewport'}
             aria-pressed={expanded}
             onClick={() => setExpanded(!expanded)}
           >
@@ -49,20 +88,17 @@ export function Viewport({ nx, ny, map, range, children, mode, readout }: Props)
           </button>
         </div>
       </header>
-      <div className="plot-wrap">
-        <div className="y-axis">
-          {[1, 0.75, 0.5, 0.25, 0].map((f) => (
-            <span key={f}>{Math.round(f * (ny - 1))}</span>
-          ))}
-        </div>
-        <div className="plot" style={{ aspectRatio: String(nx / ny) }}>
-          {children}
-          {grid && <div className="grid-overlay" />}
-        </div>
-        <div className="x-axis">
-          {[0, 0.25, 0.5, 0.75, 1].map((f) => (
-            <span key={f}>{Math.round(f * (nx - 1))}</span>
-          ))}
+      {controls}
+      <div className={reference ? 'compare-plots' : ''}>
+        {reference && (
+          <div>
+            <div className="plot-caption">First · frame 1</div>
+            {plot(reference)}
+          </div>
+        )}
+        <div>
+          {reference && <div className="plot-caption">{currentLabel}</div>}
+          {plot(children)}
         </div>
       </div>
       <div className="legend">
@@ -77,6 +113,7 @@ export function Viewport({ nx, ny, map, range, children, mode, readout }: Props)
           <span>{numberText(range[1])}</span>
         </div>
       </div>
+      {chart}
       <footer className="viewport-foot">
         <span>
           <i className="dot peach" />
@@ -84,6 +121,20 @@ export function Viewport({ nx, ny, map, range, children, mode, readout }: Props)
         </span>
         <span>{readout || 'x, y · cell coordinates'}</span>
       </footer>
+    </>
+  );
+  return expanded ? (
+    <dialog
+      ref={dialog}
+      className="panel viewport expanded"
+      aria-label="Field viewport"
+      onCancel={() => setExpanded(false)}
+    >
+      {body}
+    </dialog>
+  ) : (
+    <section className="panel viewport" aria-label="Field viewport">
+      {body}
     </section>
   );
 }
