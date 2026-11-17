@@ -6,22 +6,42 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "dev:mock": "NEXT_PUBLIC_MOCK_API=1 next dev --turbopack",
+    "api:generate": "node scripts/generate-api.mjs",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "format": "prettier --check src scripts tests *.ts *.mts *.mjs package.json tsconfig.json README.md .github/workflows/ci.yml"
   },
   "dependencies": {
+    "@fontsource-variable/dm-sans": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "lucide-react": "^1.74.0",
+    "next": "16.4.6",
+    "openapi-fetch": "^0.17.0",
     "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "next": "16.1.6"
+    "react-dom": "19.2.4"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@playwright/test": "^1.65.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^25",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
+    "@vitejs/plugin-react": "^6.3.0",
     "eslint": "^9",
-    "eslint-config-next": "16.1.6",
-    "@eslint/eslintrc": "^3"
+    "eslint-config-next": "16.4.6",
+    "fast-png": "^8.0.0",
+    "gifenc": "^1.0.3",
+    "jsdom": "^31.0.1",
+    "mediabunny": "^1.66.0",
+    "msw": "^3.0.6",
+    "openapi-typescript": "^7.13.0",
+    "prettier": "^3.10.1",
+    "typescript": "^5",
+    "vitest": "^5.1.0"
   }
 }
