@@ -3,13 +3,13 @@ import { test, expect } from '@playwright/test';
 test('draw → run → watch → export', async ({ page }, info) => {
   await page.goto('/');
   await expect(page.getByText('Mock engine')).toBeVisible();
-  await page.getByRole('button', { name: 'Stripes' }).click();
+  await page.getByRole('button', { name: 'Stripes', exact: true }).click();
   await page.getByLabel('Draw initial field').click();
   await page.getByRole('button', { name: 'Conditions', exact: true }).click();
   await page.getByLabel('Steps', { exact: true }).fill('16');
   await page.getByLabel('Frames to keep').fill('5');
   await page.getByRole('button', { name: 'Run simulation' }).click();
-  await expect(page.getByAltText('Simulation frame 1')).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Simulation frame 1' })).toBeVisible();
   await page.getByRole('button', { name: 'Play', exact: true }).click();
   await expect(page.getByLabel('Frame scrubber')).not.toHaveValue('0');
   const video = page.getByRole('button', { name: 'Download MP4' });

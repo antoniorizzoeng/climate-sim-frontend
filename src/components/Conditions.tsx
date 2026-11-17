@@ -36,7 +36,10 @@ function NumberField({
   integer?: boolean;
   placeholder?: string;
 }) {
-  const [draft, setDraft] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{
+    raw: string;
+    expected: number | undefined;
+  } | null>(null);
   return (
     <label>
       {label}
@@ -46,18 +49,26 @@ function NumberField({
         min={min}
         max={max}
         placeholder={placeholder}
-        value={draft ?? value ?? ''}
+        value={
+          draft && draft.expected === value
+            ? draft.raw
+            : value == null
+              ? ''
+              : integer
+                ? value
+                : numberText(value)
+        }
         onChange={(e) => {
           const raw = e.target.value,
             n = e.target.valueAsNumber;
-          setDraft(raw);
+          setDraft({ raw, expected: value });
           if (!raw && placeholder) {
             update(undefined);
             return;
           }
           if (Number.isFinite(n) && e.target.validity.valid) {
             update(n);
-            setDraft(null);
+            setDraft({ raw, expected: n });
           }
         }}
         onBlur={() => setDraft(null)}

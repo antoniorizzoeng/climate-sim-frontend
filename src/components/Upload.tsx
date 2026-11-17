@@ -3,11 +3,15 @@ import { UploadCloud, FileBox, PencilLine } from 'lucide-react';
 import { api, checked, decodeGrid, message, upload } from '@/lib/api';
 import {
   resizePlane,
+  numberText,
   type ColorMap,
   type Plane,
   type PlaneSelection,
 } from '@/lib/model';
 import type { components } from '@/lib/schema';
+import { DecimalInput } from './DecimalInput';
+const coordinateText = (v: number | string) =>
+  typeof v === 'number' ? numberText(v) : v;
 type Stats = components['schemas']['PlaneStats'];
 type Result = {
   selection: PlaneSelection;
@@ -194,7 +198,7 @@ export function UploadControls({
               {d.name} index{' '}
               {d.size > 200 &&
                 d.values?.[selection.index[d.name] ?? 0] !== undefined &&
-                ' · ' + d.values[selection.index[d.name] ?? 0]}
+                ' · ' + coordinateText(d.values[selection.index[d.name] ?? 0])}
               {d.size <= 200 ? (
                 <select
                   value={selection.index[d.name] ?? 0}
@@ -208,7 +212,9 @@ export function UploadControls({
                   {Array.from({ length: d.size }, (_, i) => (
                     <option value={i} key={i}>
                       {i}
-                      {d.values?.[i] !== undefined ? ' · ' + d.values[i] : ''}
+                      {d.values?.[i] !== undefined
+                        ? ' · ' + coordinateText(d.values[i])
+                        : ''}
                     </option>
                   ))}
                 </select>
@@ -236,19 +242,17 @@ export function UploadControls({
           {stats && (
             <p className="hint">
               {stats.missing_count.toLocaleString()} missing cells · mean{' '}
-              {stats.mean?.toPrecision(4) ?? 'unavailable'}
+              {stats.mean == null ? 'unavailable' : numberText(stats.mean)}
             </p>
           )}
           {(!!stats?.missing_count ||
             (!stats && selection.field.state === 'archived')) && (
             <label>
               Missing-cell fill value
-              <input
-                type="number"
-                step="any"
+              <DecimalInput
                 placeholder="Enter a finite value"
                 value={fill}
-                onChange={(e) => setFill(e.target.value)}
+                onEdit={setFill}
               />
             </label>
           )}

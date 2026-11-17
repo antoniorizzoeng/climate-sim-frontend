@@ -6,12 +6,16 @@ export function Timeline({
   run,
   n,
   setN,
+  ready = true,
+  autoplay = false,
 }: {
+  ready?: boolean;
+  autoplay?: boolean;
   run?: Run | null;
   n: number;
   setN: (n: number) => void;
 }) {
-  const [playing, setPlaying] = useState(false),
+  const [playing, setPlaying] = useState(autoplay),
     [speed, setSpeed] = useState(1);
   const count = run?.status === 'expired' ? 0 : (run?.frames ?? 0),
     last = Math.max(0, count - 1);
@@ -22,13 +26,13 @@ export function Timeline({
     setPlaying(!playing);
   }, [count, n, last, live, playing, setN]);
   useEffect(() => {
-    if (!playing || !count) return;
+    if (!playing || !count || !ready) return;
     const t = setTimeout(() => {
       if (n < last) setN(n + 1);
       else if (!live) setPlaying(false);
     }, 200 / speed);
     return () => clearTimeout(t);
-  }, [playing, count, n, last, speed, setN, live]);
+  }, [playing, count, n, last, speed, setN, live, ready]);
   const stepFrame = useCallback(
     (offset: number) => {
       setPlaying(false);

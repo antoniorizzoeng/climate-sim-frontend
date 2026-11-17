@@ -164,6 +164,16 @@ export function pixels(
   return out;
 }
 export const numberText = (n: number) => Number(n.toPrecision(5)).toString();
+/** Snap range ends that are float noise around zero (e.g. 3.7e-30) to exactly 0. */
+export function cleanRange(
+  range: readonly number[] | null | undefined,
+): [number, number] | null {
+  if (!range || range.length < 2) return null;
+  const [lo, hi] = range;
+  const span = Math.abs(hi - lo) || Math.max(Math.abs(lo), Math.abs(hi), 1);
+  const snap = (v: number) => (Math.abs(v) < span * 1e-9 ? 0 : v);
+  return [snap(lo), snap(hi)];
+}
 export function encodePlane(data: Float32Array) {
   const bytes = new ArrayBuffer(data.length * 4),
     view = new DataView(bytes);

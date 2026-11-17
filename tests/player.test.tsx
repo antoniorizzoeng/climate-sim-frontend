@@ -4,7 +4,7 @@ import { expect, it, afterAll, beforeAll, afterEach, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { Timeline } from '@/components/Timeline';
-import { PlayerImage } from '@/components/Player';
+import { Player } from '@/components/Player';
 import { baseUrl } from '@/lib/api';
 import { handlers } from '@/mocks/handlers';
 import { start, validate } from '@/mocks/store';
@@ -49,32 +49,107 @@ it('plays and pauses with space and ignores arrow shortcuts in controls', async 
   fireEvent.keyDown(screen.getByLabelText('Playback speed'), { key: 'ArrowRight' });
   expect(screen.getByLabelText('Frame scrubber')).toHaveValue('1');
 });
-it('prefetches written frames and requests just the hovered bottom-left cell', async () => {
-  const frames: number[] = [],
-    queries: URLSearchParams[] = [];
-  URL.createObjectURL = vi.fn(() => 'blob:frame');
-  URL.revokeObjectURL = vi.fn();
+function mockPlanes() {
+  const requests: string[] = [];
+  vi.stubGlobal(
+    'ImageData',
+    class {
+      constructor(public data: Uint8ClampedArray) {}
+    },
+  );
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
   server.use(
-    http.get(baseUrl + '/runs/:id/frames/:n.png', ({ params }) => {
-      frames.push(Number(params.n));
-      return new HttpResponse(new Uint8Array([0]));
+    http.get(baseUrl + '/runs/:id/frames/:n/values', ({ request, params }) => {
+      requests.push(new URL(request.url).search);
+      return new HttpResponse(
+        new Float32Array(48).fill(12.5 + Number(params.n)).buffer,
+        { headers: { 'X-Nx': '8', 'X-Ny': '6' } },
+      );
     }),
-    http.get(baseUrl + '/runs/:id/frames/:n/values', ({ request }) => {
-      queries.push(new URL(request.url).searchParams);
-      return new HttpResponse(new Float32Array([12.5]).buffer, {
-        headers: { 'X-Nx': '1', 'X-Ny': '1', 'X-I0': '0', 'X-J0': '0' },
+  );
+  return requests;
+}
+
+it('decodes written grids ahead and reuses the hovered bottom-left cell and mean', async () => {
+  const requests = mockPlanes();
+  const read = vi.fn();
+  render(
+    <Player
+      run={run}
+      n={0}
+      colors={{ colormap: 'inferno' }}
+      range={[0, 20]}
+      onRead={read}
+      readout=""
+      onPresent={vi.fn()}
+    />,
+  );
+  const img = await screen.findByRole('img', { name: 'Simulation frame 1' });
+  await screen.findByRole('img', { name: 'Field mean over time for 2 loaded frames' });
+  vi.spyOn(img, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 80, 60));
+  fireEvent.pointerMove(img, { clientX: 2, clientY: 59 });
+  expect(read).toHaveBeenCalledWith('x 0 · y 0 · u 12.5');
+  expect(requests).toEqual(['?stride=1', '?stride=1']);
+  expect(screen.getByText('12.5')).toBeVisible();
+});
+
+it('compares frame one with the current frame using the same range and smoothing', async () => {
+  const requests = mockPlanes();
+  const props = {
+    run,
+    colors: { colormap: 'inferno' as const },
+    range: [0, 20],
+    onRead: vi.fn(),
+    readout: '',
+    onPresent: vi.fn(),
+  };
+  const view = render(<Player {...props} n={0} />);
+  await screen.findByRole('img', { name: 'Field mean over time for 2 loaded frames' });
+  fireEvent.click(screen.getByRole('button', { name: 'Compare frames' }));
+  view.rerender(<Player {...props} n={1} />);
+  const current = await screen.findByRole('img', { name: 'Simulation frame 2' });
+  const first = screen.getByRole('img', { name: 'First frame reference' });
+  expect(screen.getByText('13.5')).toBeVisible();
+  expect(current).toHaveStyle({ imageRendering: 'pixelated' });
+  fireEvent.click(screen.getByRole('button', { name: 'Smooth pixels' }));
+  for (const canvas of [first, current])
+    expect(canvas).toHaveStyle({ imageRendering: 'auto' });
+  expect(requests).toHaveLength(2);
+  fireEvent.click(screen.getByRole('button', { name: 'Compare frames' }));
+  expect(screen.queryByLabelText('First frame reference')).toBeNull();
+});
+
+it('holds the last decoded frame during a slow seek and never refetches the pending frame', async () => {
+  mockPlanes();
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const delayed = vi.fn();
+  server.use(
+    http.get(baseUrl + '/runs/:id/frames/1/values', async () => {
+      delayed();
+      await pending;
+      return new HttpResponse(new Float32Array(48).fill(0.25).buffer, {
+        headers: { 'X-Nx': '8', 'X-Ny': '6' },
       });
     }),
   );
-  const read = vi.fn();
-  render(
-    <PlayerImage run={run} n={0} colors={{ colormap: 'inferno' }} onRead={read} />,
-  );
-  const img = await screen.findByAltText('Simulation frame 1');
-  await waitFor(() => expect(frames).toEqual([0, 1]));
-  vi.spyOn(img, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 80, 60));
-  fireEvent.pointerMove(img, { clientX: 2, clientY: 59 });
-  await waitFor(() => expect(queries).toHaveLength(1));
-  expect(Object.fromEntries(queries[0])).toEqual({ i0: '0', j0: '0', w: '1', h: '1' });
-  await waitFor(() => expect(read).toHaveBeenCalledWith('x 0 · y 0 · u 12.50'));
+  const props = {
+    run,
+    colors: { colormap: 'inferno' as const },
+    range: [0, 1],
+    onRead: vi.fn(),
+    readout: '',
+    onPresent: vi.fn(),
+  };
+  const view = render(<Player {...props} n={0} />);
+  const current = await screen.findByRole('img', { name: 'Simulation frame 1' });
+  await waitFor(() => expect(delayed).toHaveBeenCalledTimes(1));
+  view.rerender(<Player {...props} n={1} />);
+  expect(current).toBeVisible();
+  expect(screen.queryByText('Loading frame…')).toBeNull();
+  release();
+  expect(await screen.findByRole('img', { name: 'Simulation frame 2' })).toBe(current);
+  expect(delayed).toHaveBeenCalledTimes(1);
 });

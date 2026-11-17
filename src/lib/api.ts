@@ -35,7 +35,7 @@ function multipart(body: Record<string, Blob | string | number>) {
   }
   return form;
 }
-export async function saveDrawing(p: Plane) {
+export async function saveDrawing(p: Plane, name = 'Drawn field') {
   if (p.data.some((v) => !Number.isFinite(v)))
     throw new Error('Every drawn cell must have a finite float32 value.');
   return checked(
@@ -43,7 +43,7 @@ export async function saveDrawing(p: Plane) {
       body: {
         nx: p.nx,
         ny: p.ny,
-        name: 'Drawn field',
+        name,
         data: new Blob([encodePlane(p.data)], { type: 'application/octet-stream' }),
       },
       bodySerializer: multipart,
