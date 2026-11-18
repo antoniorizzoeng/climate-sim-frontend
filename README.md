@@ -1,60 +1,106 @@
-# ClimateSim frontend
+# ![ClimateSim — Simulation workspace](docs/assets/banner.svg)
 
-An interactive workspace for 2D and 3D advection–diffusion simulations. Draw a scalar field, extrude a drawing into layers, or select a plane or volume from a NetCDF file. Set the flow and inspect the simulation as frames arrive.
+**Draw the starting field, set the wind, and watch a real MPI simulation advance in the browser.**
 
-## Run the full stack with Docker
+[![CI status](https://github.com/antoniorizzoeng/climate-sim-frontend/actions/workflows/ci.yml/badge.svg)](https://github.com/antoniorizzoeng/climate-sim-frontend/actions/workflows/ci.yml)
+[![CodeQL status](https://github.com/antoniorizzoeng/climate-sim-frontend/actions/workflows/codeql.yml/badge.svg)](https://github.com/antoniorizzoeng/climate-sim-frontend/actions/workflows/codeql.yml)
+[![License AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-52475e)](LICENSE)
 
-From this checkout, run:
+<p align="center">
+  <img src="docs/assets/crosswind.gif" width="820" alt="A luminous orange plume moves to the right and diffuses against a dark field."/>
+  <br/>
+  <em>Crosswind plume · 480 × 162 cells · 31 saved frames · inferno</em>
+</p>
+
+## Why
+
+A painted plume makes the direction of the wind visible before a single number changes on a chart. Scrubbing back to the first frame lets you see which details moved, which softened, and which crossed an edge.
+
+| Shape the experiment                                                                                                                                            | Read the result                                                                                                                               |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Draw or upload** · Paint a field, extrude it into layers, or select a variable and level from NetCDF. Examples include twin hotspots and a wrap-around world. | **Play and compare** · Follow written frames, compare against the initial field on one scale, hover for cell values and track the field mean. |
+| **Set conditions** · Adjust diffusion, velocity, spacing and boundaries. The editor shows the joint timestep limit before submission.                           | **Keep the run** · Export PNG, GIF, MP4 or NetCDF. History reopens fields and completed runs.                                                 |
+
+## Quick start
+
+With Docker Compose installed and ports 3000 and 8000 free, run this from the checkout. The first build downloads the backend and compiles the MPI solver.
 
 ```sh
 docker compose up --build
 ```
 
-Open [localhost:3000](http://localhost:3000) once both services are healthy. Compose builds the standalone Next.js frontend and the MPI backend from [climate-sim-backend on main](https://github.com/antoniorizzoeng/climate-sim-backend/tree/main). The first build downloads and compiles the solver. The browser calls the API at `http://localhost:8000`, with CORS enabled for `http://localhost:3000`. Both ports must be free. To use a separately started frontend on port 3100, launch just the API with `CORS_ORIGINS=http://localhost:3100 docker compose up --build backend`. The named `simulations` volume stores fields, runs and exports under `/data`. Use `docker compose down` to stop the stack and preserve the data.
+Open the workspace, choose **Crosswind plume**, then **Run simulation**. Use **Space** to pause and the arrow keys to step. Turn on **Compare frames** to keep the starting field beside the current one. [Open the local workspace](http://localhost:3000)
 
-## Try the mock workspace
+<details>
+<summary><strong>Connect a development frontend to an existing engine</strong></summary>
 
-Use the current Node.js 22 LTS patch release (22.22.2 or later in the 22.x line) and npm.
+Use Node.js 22.22.2 or later in the 22.x line. The API on port 8000 must allow the browser origin `http://localhost:3100` in `CORS_ORIGINS`.
 
 ```sh
 npm ci
-npm run dev:mock
+NEXT_PUBLIC_API_URL=http://localhost:8000 npx next dev -p 3100
 ```
 
-Open [localhost:3000](http://localhost:3000). Choose an example or paint on the initial hotspot, choose **Conditions**, then select **Run simulation**. Use **Space** to play or pause and **← / →** to step through written frames. Hover over a cell to see its coordinates and value. The run inspector offers MP4, GIF, native-resolution PNG, and raw NetCDF downloads.
+Open the local development server and look for **Engine online** in the header. Compose binds both services to loopback and keeps simulation data in its named volume. [Development workspace](http://localhost:3100) · [Compose configuration](docker-compose.yml)
 
-The browser mock uses MSW and requires service workers on localhost or HTTPS. Its fields, runs, and exports live in memory for the current page session. Uploading any file produces a sample dataset with a temperature variable, time and level coordinates, a humidity variable, and missing cells. The mock retains the original uploaded bytes for download. It uses a lightweight transport approximation for playback. Mock downloads encode the selected simulation, including its requested frame rate and colors. MP4 encoding in mock mode requires browser WebCodecs support.
+</details>
 
-## Connect the backend
+## Inside the workspace
 
-```sh
-NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
-```
+![Dark workspace with a crosswind plume at frame 14, its field intensity scale, timeline and export inspector](docs/assets/workspace.webp)
 
-The URL shown is the default. For production, set the same public variable when running `npm run build`, then run the standalone server as shown in the Dockerfile. The API must allow the frontend origin and expose the float32 grid headers. The mock starts only with `NEXT_PUBLIC_MOCK_API=1`.
+| Component                                                                       | What to look for                                                                                                                                                                    |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Drawing](src/components/Drawing.tsx) and [Upload](src/components/Upload.tsx)   | Row zero is at the bottom. Loading a large plane into the canvas samples it. Running the upload directly preserves the original grid.                                               |
+| [Conditions](src/components/Conditions.tsx)                                     | Opposite periodic faces are paired. The server validates the request before it joins the queue.                                                                                     |
+| [Player](src/components/Player.tsx) and [Timeline](src/components/Timeline.tsx) | Upcoming frames are decoded ahead of playback. The scrubber grows as snapshots arrive, and the sparkline uses the means of loaded grids.                                            |
+| [Output](src/components/Output.tsx) and [History](src/components/History.tsx)   | Revisit a run, change the display range or export the current view. Run outputs last seven days. Inputs archive after seven days without use and remain recoverable for another 30. |
 
-## Working with fields and runs
+### See inside a volume
 
-- **Upload** a NetCDF file or drop it on the upload control. Select the variable and an index for each extra dimension. The preview colors missing cells with the chosen replacement. The fill starts at the finite plane mean. Supply a value explicitly for an all-missing plane.
-- **Load into canvas** copies the selected plane, sampling with a stride when the longest side exceeds 512 cells. Extremely thin sampled axes expand to the four-cell drawing minimum. Running the upload directly uses the original grid. Drawings support 4–1024 cells per axis. The eraser restores the lower end of the drawing range. Drawing and hover both place row zero at the bottom.
-- **Conditions** displays the joint advection–diffusion stability limit, clamps the time step, and pairs opposite periodic edges. Available boundaries come from the engine configuration. Starting a run calls server validation and shows any warnings before submission.
-- **Playback** uses the resolved output interval and the final step to label simulation time. The scrubber grows as frames become readable. The player decodes upcoming float32 grids and shares them between the current and first-frame views. Choose **Smooth pixels** for interpolation or **Compare frames** to see the initial and current fields on the same scale. The sparkline tracks the mean of loaded grids. Display grids over 512 cells per axis are sampled, with exact hover values fetched on demand. PNG downloads use the engine’s native resolution and selected range.
-- **3D playback** opens on the central Z slice. Choose an axis and layer, project the maximum or mean along an axis, or orbit the volume in WebGL2. PNG, MP4, and GIF use the selected slice or projection. Volume view keeps the last plane selection for these exports.
-- **History** pages through fields and runs. Fields remain active for seven days after use and archived for another thirty. An archived original remains downloadable and running the field reactivates it. Completed run outputs expire after seven days. Use **Rerun** while the source remains available.
+![Ray-marched view of two interlinked scalar rings inside a three-dimensional grid, with opacity and threshold controls](docs/assets/volume.webp)
 
-## Development checks
+Open a volume to start at its middle z slice. **Slice** follows one layer along x, y or z. **Projection** takes a maximum or mean through a column. **Volume** ray-marches the scalar field in WebGL2. Drag to orbit, then adjust the opacity and threshold to inspect a weaker structure behind a stronger one. PNG and movie exports use the last selected slice or projection. [Volume player](src/components/VolumePlayer.tsx)
 
-```sh
-npm run api:generate
-npm run format
-npm run lint
-npm run typecheck
-npm test
-npm run build
-npx playwright install chromium
-npm run test:e2e
-```
+## Sky nowcast
 
-Playwright starts its own mock server on port 3100. On Linux hosts missing Chromium system libraries, CI uses `npx playwright install --with-deps chromium`.
+![Sky tab at Roque de los Muchachos with the blended forecast, best observing window and hourly seeing](docs/assets/sky.webp)
 
-The API source of truth is [api/openapi.yaml](api/openapi.yaml). Regenerate [src/lib/schema.ts](src/lib/schema.ts) after contract changes. The App Router workspace owns draft and run selection state. Components handle the drawing surface, input forms, frame cache, downloads, and history. Browser and component tests share the handlers in [src/mocks](src/mocks).
+Enter an observing site to compare three wind-transported cloud layers with Open-Meteo's model forecast. The blend begins with transport and shifts toward the model as lead time grows. With the default two-hour time constant, the transport share falls to about 37% after two hours. Play the three layer movies together to see which clouds are moving toward the site.
+
+The best window is the longest run of samples with at least 70% blended clear sky and good or fair seeing. Seeing is estimated from 250 hPa wind. Local turbulence, cloud formation and dissipation, vertical motion and weather outside the grid limit the forecast. The screenshot shows a completed forecast for **Roque de los Muchachos**.
+
+Saved site names stay in the browser. Only location coordinates for the site and surrounding grid travel to Open-Meteo with the requested weather variables and UTC hours. [Sky components](src/components/sky) · [Backend method](https://github.com/antoniorizzoeng/climate-sim-backend#sky-nowcast)
+
+## Playback performance
+
+The player samples display planes wider or taller than 512 cells and fetches an exact cell on hover. **Frame PNG** keeps the native plane resolution. For a 4096² source, the backend benchmark measured **7.14 ms** for a strided 1024² window of values and **157.50 ms** for the complete float32 plane.
+
+![Backend frame-request medians in milliseconds for native and scaled PNGs, complete float32 planes and sampled windows](docs/assets/frame-latency.svg)
+
+These are warm, in-process API timings on one logical CPU. Browser frame rate also depends on network transfer, decoding and the graphics device. [Measurements and method](https://github.com/antoniorizzoeng/climate-sim-backend/blob/main/docs/performance.md)
+
+<details>
+<summary><strong>Configuration and contract</strong></summary>
+
+| Setting                  | Meaning                                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_API_URL`    | API origin used by the browser. Defaults to `http://localhost:8000`. Set at build time for the standalone frontend. |
+| `NEXT_PUBLIC_MOCK_API`   | Set to `1` for the in-memory browser demo on localhost or HTTPS. Reloading clears its runs.                         |
+| `CORS_ORIGINS` (backend) | Include the frontend's origin so it can read the binary grid responses and their dimension headers.                 |
+
+[OpenAPI contract](api/openapi.yaml) · [Generated client types](src/lib/schema.ts) · [Example fields and conditions](src/lib/examples.ts)
+
+</details>
+
+## Project family
+
+[MPI engine](https://github.com/antoniorizzoeng/climate-sim-mpi-cpp) · [Simulation API](https://github.com/antoniorizzoeng/climate-sim-backend) · **Browser workspace** (here)
+
+## Contributing
+
+Include the input field, run settings and browser when reporting a playback issue. Component and Playwright tests share the browser mock. [Contributing guide](CONTRIBUTING.md)
+
+## License
+
+[GNU Affero General Public License v3.0](LICENSE)
