@@ -41,7 +41,7 @@ it('limits seeking to written frames and labels the final partial interval', () 
   fireEvent.change(screen.getByLabelText('Frame scrubber'), { target: { value: '3' } });
   expect(screen.getByLabelText('Frame scrubber')).toHaveAttribute(
     'aria-valuetext',
-    'Step 10, time 5',
+    'Step 10, t = 5 t',
   );
 });
 it('plays and pauses with space and ignores arrow shortcuts in controls', async () => {
@@ -225,4 +225,19 @@ it('retries the selected frame after a malformed grid response', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
   expect(await screen.findByRole('img', { name: 'Simulation frame 1' })).toBeVisible();
   expect(frame).toHaveBeenCalledTimes(2);
+});
+
+it('uses the saved run units on the scrubber and clamps the final partial frame to simulated duration', () => {
+  const physical = {
+    ...run,
+    status: 'done' as const,
+    frames: 4,
+    request: { ...run.request, units: { length: 'km' as const, time: 'h' as const } },
+    resolved: { ...run.resolved, dt: 0.25 },
+  };
+  render(<Transport r={physical} />);
+  const scrubber = screen.getByLabelText('Frame scrubber');
+  fireEvent.change(scrubber, { target: { value: '3' } });
+  expect(scrubber).toHaveAttribute('aria-valuetext', 'Step 10, t = 2.5 h');
+  expect(screen.getByText('t = 2.5 h')).toBeVisible();
 });

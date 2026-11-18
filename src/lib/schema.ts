@@ -7,7 +7,25 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
+    /** Returns 503 when the run worker has stopped or is retrying a metadata write. */
     get: operations['health'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/storage': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Disk used by stored data and free space on the data volume (single local user; per-user quotas come later). */
+    get: operations['getStorage'];
     put?: never;
     post?: never;
     delete?: never;
@@ -81,7 +99,7 @@ export interface paths {
     delete: operations['deleteField'];
     options?: never;
     head?: never;
-    patch?: never;
+    patch: operations['renameField'];
     trace?: never;
   };
   '/fields/{fieldId}/original': {
@@ -166,6 +184,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
+    /** User runs only. The layer runs owned by a nowcast are excluded (their bytes count in /storage under nowcasts). */
     get: operations['listRuns'];
     put?: never;
     post: operations['createRun'];
@@ -209,7 +228,7 @@ export interface paths {
     delete: operations['deleteRun'];
     options?: never;
     head?: never;
-    patch?: never;
+    patch: operations['renameRun'];
     trace?: never;
   };
   '/runs/{runId}/rerun': {
@@ -458,6 +477,43 @@ export interface components {
       extra_dims: components['schemas']['ExtraDim'][];
       units?: string | null;
       long_name?: string | null;
+      /** @description Spacing derived from 1-D coordinate variables with recognised CF units; null when unknown. */
+      spacing?: components['schemas']['GridSpacing'] | null;
+    };
+    GridSpacing: {
+      /** @description Mean spacing along x in length_unit */
+      dx: number;
+      dy: number;
+      /** @description Only for a vertical length coordinate (not pressure) */
+      dz?: number | null;
+      /** @enum {string} */
+      length_unit: 'm' | 'km';
+      /** @description True when converted from degrees or when the coordinate spacing is non-uniform by more than 1%. */
+      approximate: boolean;
+    };
+    /** @description Unit system of a run request. cell/t are grid units. */
+    Units: {
+      /** @enum {string} */
+      length: 'cell' | 'm' | 'km';
+      /** @enum {string} */
+      time: 't' | 's' | 'h';
+    };
+    RenameRequest: {
+      /** @description Trimmed; must not be blank */
+      name: string;
+    };
+    StorageUsage: {
+      /** @description runs_bytes + fields_bytes + nowcasts_bytes */
+      used_bytes: number;
+      runs_bytes: number;
+      /** @description Active and archived fields */
+      fields_bytes: number;
+      /** @description Nowcast records including their layer runs */
+      nowcasts_bytes: number;
+      /** @description Free space on the data volume */
+      free_bytes: number;
+      /** @description Size of the data volume */
+      total_bytes: number;
     };
     PlaneStats: {
       var: string;
@@ -477,9 +533,10 @@ export interface components {
       id: string;
       /** @enum {string} */
       source: 'upload' | 'drawn';
-      /** @description Original filename or the drawn name */
+      /** @description Display name; initially the original filename or the drawn name; editable with PATCH */
       name: string;
-      size_bytes?: number;
+      /** @description Bytes on disk for this field (original */
+      size_bytes: number;
       /** Format: date-time */
       created_at: string;
       /** Format: date-time */
@@ -573,7 +630,10 @@ export interface components {
       /** @description Frames to keep (incl. initial and final). Default 101 when neither is given. */
       frames?: number;
       bc?: components['schemas']['BoundaryConfig'];
-      /** @description MPI ranks. Omitted → default_processes, automatically reduced so the MPI_Dims_create grid fits nx and ny. For volumes, all ranks must fit a Cartesian factorization across nx, ny and nz. An explicit value that does not fit, or exceeds cpu_count, is rejected. */
+      /** @description Display name. Omitted → derived by the server (preset label or field name, plus the creation time). */
+      name?: string;
+      units?: components['schemas']['Units'];
+      /** @description MPI ranks. Clients should omit it (the web app does). Omitted → chosen by the server from the grid size and cpu_count (enough cells per rank to be worth it), then reduced so the MPI_Dims_create grid fits nx and ny. For volumes, all ranks must fit a Cartesian factorization across nx, ny and nz. An explicit value that does not fit, or exceeds cpu_count, is rejected. */
       processes?: number;
     };
     ResolvedRun: {
@@ -599,6 +659,10 @@ export interface components {
     };
     Run: {
       id: string;
+      /** @description Display name (request.name or the server-derived default; editable with PATCH) */
+      name: string;
+      /** @description Bytes on disk for this run now (frames */
+      size_bytes: number;
       /** @enum {string} */
       status: 'queued' | 'running' | 'done' | 'error' | 'expired';
       /** Format: date-time */
@@ -621,7 +685,7 @@ export interface components {
       /** @description Frames 0..frames-1 are written and readable */
       frames: number;
       elapsed_seconds?: number | null;
-      /** @description Fixed default colour range for the whole run, from frame 0 (widened to include 0 when any edge is dirichlet). Advection–diffusion with these schemes cannot leave this range, so colours never shift during playback. A constant field renders as the colormap midpoint. */
+      /** @description Fixed default colour range for the whole run, from frame 0 (widened to include 0 when any edge is dirichlet). Advection–diffusion with these schemes cannot leave this range, so colours never shift during playback. A constant field renders as the colormap midpoint. Slices and projections of a nonuniform volume use the run range even when every pixel in the view has the same value. */
       display_range: number[] | null;
       /** @description Error text when status is error */
       message: string | null;
@@ -634,8 +698,17 @@ export interface components {
        * @default 300
        */
       radius_km?: number;
-      /** @default 6 */
+      /**
+       * @description Horizon for window=now; ignored for tonight.
+       * @default 6
+       */
       hours?: number;
+      /**
+       * @description now: the next `hours` hours. tonight: from data_time until the end of the coming (or current) astronomical night (Sun below −18°), at most 24 h ahead. 422 when the site has no astronomical darkness in the next 24 h.
+       * @default now
+       * @enum {string}
+       */
+      window?: 'now' | 'tonight';
       /**
        * @description Simulation cells per side.
        * @default 96
@@ -695,7 +768,7 @@ export interface components {
             seeing: 'good' | 'fair' | 'poor';
           }[]
         | null;
-      /** @description Longest stretch of consecutive ten-minute samples with blended clear fraction at least 0.70 and good or fair seeing. Ties go to the earliest stretch. Null until done or when no sample qualifies. */
+      /** @description Longest stretch of consecutive ten-minute samples with blended clear fraction at least 0.70 and good or fair seeing. When `night` is present only samples between dusk and dawn qualify (1.4.0). Ties go to the earliest stretch. Null until done or when no sample qualifies. */
       best_window: {
         /**
          * Format: date-time
@@ -728,6 +801,28 @@ export interface components {
         /** @description Longitude of the southwest cell centre in degrees. */
         lon0: number;
       };
+      /** @description Darkness and Moon for the night covered by the record (null when the site has no astronomical night in the horizon). Times are UTC. Accuracy target: Sun events within 2 minutes, Moon altitude within 1°. */
+      night: {
+        /**
+         * Format: date-time
+         * @description End of astronomical twilight (Sun at −18°
+         */
+        dusk: string;
+        /**
+         * Format: date-time
+         * @description Start of astronomical twilight (Sun at −18°
+         */
+        dawn: string;
+        /** @description Every 10 minutes from max(dusk, data_time) to dawn. */
+        moon: {
+          /** Format: date-time */
+          time: string;
+          /** @description Topocentric altitude of the Moon's centre */
+          altitude_deg: number;
+          /** @description Illuminated fraction of the disc */
+          illumination: number;
+        }[];
+      } | null;
       message: string | null;
       /**
        * Format: date-time
@@ -757,6 +852,15 @@ export interface components {
     };
     /** @description Error */
     MessageError: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        'application/json': components['schemas']['MessageError'];
+      };
+    };
+    /** @description The native plane exceeds the available RAM allowance, or the requested downscale cannot fit the configured rendering budget. */
+    PngMemoryLimit: {
       headers: {
         [name: string]: unknown;
       };
@@ -813,6 +917,20 @@ export interface components {
     /** @description Take every stride-th cell in both axes */
     Stride: number;
     Limit: number;
+    /** @description Case-insensitive substring match on name (and id prefix) */
+    Q: string;
+    /** @description Inclusive lower bound on created_at */
+    CreatedFrom: string;
+    /** @description Exclusive upper bound on created_at */
+    CreatedTo: string;
+    /** @description Ties break on id. A cursor is only valid with the same q, created_from, created_to and sort (422 otherwise). */
+    Sort:
+      | 'created_desc'
+      | 'created_asc'
+      | 'size_desc'
+      | 'size_asc'
+      | 'name_asc'
+      | 'name_desc';
     Cursor: string;
   };
   requestBodies: never;
@@ -841,7 +959,30 @@ export interface operations {
             status: 'ok';
             /** @description Engine binary path and version */
             engine: string;
+            /** @description info.version of this contract, e.g. 1.4.0 */
+            api_version: string;
           };
+        };
+      };
+      503: components['responses']['MessageError'];
+    };
+  };
+  getStorage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StorageUsage'];
         };
       };
     };
@@ -871,6 +1012,14 @@ export interface operations {
       query?: {
         limit?: components['parameters']['Limit'];
         cursor?: components['parameters']['Cursor'];
+        /** @description Case-insensitive substring match on name (and id prefix) */
+        q?: components['parameters']['Q'];
+        /** @description Inclusive lower bound on created_at */
+        created_from?: components['parameters']['CreatedFrom'];
+        /** @description Exclusive upper bound on created_at */
+        created_to?: components['parameters']['CreatedTo'];
+        /** @description Ties break on id. A cursor is only valid with the same q, created_from, created_to and sort (422 otherwise). */
+        sort?: components['parameters']['Sort'];
       };
       header?: never;
       path?: never;
@@ -878,7 +1027,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Most recent first */
+      /** @description Filtered and sorted (default created_desc) */
       200: {
         headers: {
           [name: string]: unknown;
@@ -887,9 +1036,14 @@ export interface operations {
           'application/json': {
             items: components['schemas']['Field'][];
             next_cursor: string | null;
+            /** @description Number of matching items across all pages */
+            total: number;
+            /** @description Sum of size_bytes of matching items */
+            total_bytes: number;
           };
         };
       };
+      422: components['responses']['ValidationError'];
     };
   };
   uploadField: {
@@ -1008,6 +1162,34 @@ export interface operations {
       };
     };
   };
+  renameField: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        fieldId: components['parameters']['FieldId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RenameRequest'];
+      };
+    };
+    responses: {
+      /** @description Renamed (the original filename is still used for downloads) */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Field'];
+        };
+      };
+      404: components['responses']['MessageError'];
+      422: components['responses']['ValidationError'];
+    };
+  };
   downloadFieldOriginal: {
     parameters: {
       query?: never;
@@ -1064,6 +1246,7 @@ export interface operations {
       };
       404: components['responses']['MessageError'];
       409: components['responses']['MessageError'];
+      413: components['responses']['PngMemoryLimit'];
       422: components['responses']['ValidationError'];
     };
   };
@@ -1132,6 +1315,14 @@ export interface operations {
       query?: {
         limit?: components['parameters']['Limit'];
         cursor?: components['parameters']['Cursor'];
+        /** @description Case-insensitive substring match on name (and id prefix) */
+        q?: components['parameters']['Q'];
+        /** @description Inclusive lower bound on created_at */
+        created_from?: components['parameters']['CreatedFrom'];
+        /** @description Exclusive upper bound on created_at */
+        created_to?: components['parameters']['CreatedTo'];
+        /** @description Ties break on id. A cursor is only valid with the same q, created_from, created_to and sort (422 otherwise). */
+        sort?: components['parameters']['Sort'];
       };
       header?: never;
       path?: never;
@@ -1139,7 +1330,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Most recent first */
+      /** @description Filtered and sorted (default created_desc) */
       200: {
         headers: {
           [name: string]: unknown;
@@ -1148,9 +1339,14 @@ export interface operations {
           'application/json': {
             items: components['schemas']['Run'][];
             next_cursor: string | null;
+            /** @description Number of matching items across all pages */
+            total: number;
+            /** @description Sum of size_bytes of matching items */
+            total_bytes: number;
           };
         };
       };
+      422: components['responses']['ValidationError'];
     };
   };
   createRun: {
@@ -1248,6 +1444,34 @@ export interface operations {
       404: components['responses']['MessageError'];
     };
   };
+  renameRun: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        runId: components['parameters']['RunId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RenameRequest'];
+      };
+    };
+    responses: {
+      /** @description Renamed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Run'];
+        };
+      };
+      404: components['responses']['MessageError'];
+      422: components['responses']['ValidationError'];
+    };
+  };
   rerun: {
     parameters: {
       query?: never;
@@ -1324,6 +1548,7 @@ export interface operations {
           'application/json': components['schemas']['MessageError'];
         };
       };
+      413: components['responses']['PngMemoryLimit'];
       422: components['responses']['ValidationError'];
     };
   };

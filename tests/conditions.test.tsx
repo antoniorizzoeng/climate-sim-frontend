@@ -27,10 +27,14 @@ function Form({
 it('shows unbounded dt for a stationary field and clamps when diffusion changes', () => {
   render(<Form />);
   expect(screen.getByText(/unbounded/)).toBeVisible();
-  fireEvent.change(screen.getByLabelText('Diffusion D'), { target: { value: '2' } });
-  expect(screen.getByLabelText('Time step dt')).toHaveValue(0.125);
-  fireEvent.change(screen.getByLabelText('Time step dt'), { target: { value: '10' } });
-  expect(screen.getByLabelText('Time step dt')).toHaveValue(0.125);
+  fireEvent.change(screen.getByLabelText('Diffusion D (km²/h)'), {
+    target: { value: '2' },
+  });
+  expect(screen.getByLabelText('Time step dt (h)')).toHaveValue(0.125);
+  fireEvent.change(screen.getByLabelText('Time step dt (h)'), {
+    target: { value: '10' },
+  });
+  expect(screen.getByLabelText('Time step dt (h)')).toHaveValue(0.125);
   expect(screen.getByRole('status')).toHaveTextContent('Clamped');
 });
 it('uses both spacings and absolute advection speeds', () => {
@@ -66,7 +70,9 @@ it('offers only boundary conditions reported by the engine', () => {
   render(<Form supported={['neumann']} />);
   expect(screen.queryByRole('option', { name: 'Wrap-around' })).toBeNull();
   expect(screen.queryByText(/Wrap-around applies/)).toBeNull();
-  expect(screen.getAllByRole('option')).toHaveLength(4);
+  expect(
+    screen.getAllByRole('option', { name: 'Insulated (zero gradient)' }),
+  ).toHaveLength(4);
 });
 
 it('uses vertical spacing, velocity and anisotropic diffusion only for multiple layers', () => {
@@ -114,9 +120,9 @@ it('pairs depth faces, clamps vertical flow and removes depth fields on returnin
   });
   expect(screen.getByLabelText('front edge')).toHaveValue('neumann');
   fireEvent.change(screen.getByLabelText('Vertical flow'), { target: { value: '-2' } });
-  expect(screen.getByLabelText('Velocity vz')).toHaveValue(-2);
+  expect(screen.getByLabelText('Velocity vz (km/h)')).toHaveValue(-2);
   expect(model.dt).toBeCloseTo(0.5);
-  fireEvent.change(screen.getByLabelText('Vertical diffusion Dz'), {
+  fireEvent.change(screen.getByLabelText('Vertical diffusion Dz (km²/h)'), {
     target: { value: '2' },
   });
   expect(model.dt).toBeCloseTo(1 / 6);
@@ -132,4 +138,68 @@ it('keeps clamped volume timesteps inside the high-precision API limit', () => {
   const backendLimit = 0.5436591589925662;
   expect(dtMax(m)).toBeCloseTo(backendLimit, 15);
   expect(clampTimeStep(m).dt).toBeLessThanOrEqual(backendLimit);
+});
+
+it('relabels by default and converts every dimensional quantity only on request', () => {
+  render(<Form />);
+  const picker = screen.getByLabelText('Unit system');
+  expect(picker).toHaveValue('km');
+  fireEvent.click(screen.getByRole('button', { name: '3D' }));
+  const edit = (label: string, value: string) =>
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  edit('Grid spacing dz (km)', '2');
+  edit('Velocity vz (km/h)', '0.5');
+  edit('Vertical diffusion Dz (km²/h)', '0.25');
+  edit('Diffusion D (km²/h)', '0.125');
+  edit('Velocity vx (km/h)', '1');
+  edit('Velocity vy (km/h)', '-2');
+  edit('Time step dt (h)', '0.1');
+  fireEvent.change(picker, { target: { value: 'm' } });
+  expect(screen.getByLabelText('Grid spacing dz (m)')).toHaveValue(2);
+  expect(screen.getByLabelText('Time step dt (s)')).toHaveValue(0.1);
+  fireEvent.change(picker, { target: { value: 'km' } });
+  fireEvent.click(screen.getByLabelText(/Convert values/));
+  fireEvent.change(picker, { target: { value: 'm' } });
+  expect(screen.getByLabelText('Grid spacing dx (m)')).toHaveValue(1000);
+  expect(screen.getByLabelText('Grid spacing dy (m)')).toHaveValue(1000);
+  expect(screen.getByLabelText('Grid spacing dz (m)')).toHaveValue(2000);
+  expect(screen.getByLabelText('Time step dt (s)')).toHaveValue(360);
+  for (const [label, expected] of [
+    ['Velocity vx (m/s)', 1 / 3.6],
+    ['Velocity vy (m/s)', -2 / 3.6],
+    ['Velocity vz (m/s)', 0.5 / 3.6],
+    ['Diffusion D (m²/s)', 0.125e6 / 3600],
+    ['Vertical diffusion Dz (m²/s)', 0.25e6 / 3600],
+  ] as const)
+    expect(
+      (screen.getByLabelText(label) as HTMLInputElement).valueAsNumber,
+    ).toBeCloseTo(expected, 2);
+  expect(screen.getByRole('status')).toHaveTextContent(/dt_max = [\d.]+ s/);
+  expect(screen.getByText('Flow velocity').parentElement).toHaveTextContent('m/s');
+  fireEvent.change(picker, { target: { value: 'cell' } });
+  expect(screen.getByLabelText('Grid spacing dx (cell)')).toHaveValue(1000);
+  expect(screen.getByLabelText('Time step dt (t)')).toHaveValue(360);
+  expect(screen.getByLabelText(/Convert values/)).toBeDisabled();
+});
+
+it('prefills physical coordinate spacing including vertical length and leaves grid units unscaled', async () => {
+  const { applySpacing, systems } = await import('@/lib/model');
+  const spacing = {
+    dx: 1.5,
+    dy: 3,
+    dz: 0.02,
+    length_unit: 'km' as const,
+    approximate: true,
+  };
+  expect(applySpacing({ ...defaults, nz: 2, units: systems.m }, spacing)).toMatchObject(
+    { dx: 1500, dy: 3000, dz: 20 },
+  );
+  expect(
+    applySpacing({ ...defaults, nz: 2, units: systems.km }, spacing, true),
+  ).toMatchObject({ dx: 1, dy: 1, dz: 0.02 });
+  expect(applySpacing({ ...defaults, units: systems.cell }, spacing)).toMatchObject({
+    dx: 1,
+    dy: 1,
+  });
+  expect(applySpacing({ ...defaults }, spacing)).not.toHaveProperty('dz');
 });

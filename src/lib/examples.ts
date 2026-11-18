@@ -147,7 +147,6 @@ export function exampleConditions(
     ...(nz && { nz, vz, dz: 1 }),
     steps: nz ? 48 : 120,
     frames: nz ? 25 : 41,
-    processes: 1,
     bc: {
       left: edge,
       right: edge,

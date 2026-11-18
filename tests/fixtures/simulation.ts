@@ -10,6 +10,8 @@ export const request: RequestBody = {
 export function simulation(overrides: Partial<Run> = {}): Run {
   return {
     id: 'simulation-a',
+    name: 'Simulation A',
+    size_bytes: 1024,
     status: 'done',
     created_at: '2026-01-01T00:00:00Z',
     expires_at: '2026-01-08T00:00:00Z',

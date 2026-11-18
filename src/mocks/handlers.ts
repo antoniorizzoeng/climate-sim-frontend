@@ -178,7 +178,7 @@ function isRequest(body: unknown): body is RequestBody {
     'processes',
   ];
   if (
-    !objectWithKeys(body, ['source', 'bc', ...numeric]) ||
+    !objectWithKeys(body, ['source', 'bc', 'units', 'name', ...numeric]) ||
     !Number.isFinite(body.dt) ||
     !Number.isInteger(body.steps)
   )
@@ -190,6 +190,18 @@ function isRequest(body: unknown): body is RequestBody {
       Object.values(body.bc).some(
         (v) => !['dirichlet', 'neumann', 'periodic'].includes(String(v)),
       ))
+  )
+    return false;
+  if (
+    body.name !== undefined &&
+    (typeof body.name !== 'string' || !body.name.trim() || body.name.length > 120)
+  )
+    return false;
+  if (
+    body.units !== undefined &&
+    (!objectWithKeys(body.units, ['length', 'time']) ||
+      !['km', 'm', 'cell'].includes(String(body.units.length)) ||
+      !['h', 's', 't'].includes(String(body.units.time)))
   )
     return false;
   const source = body.source;
@@ -275,7 +287,11 @@ export const handlers = [
   ),
 
   http.get(url('/health'), () =>
-    HttpResponse.json({ status: 'ok', engine: 'Mock MPI engine' }),
+    HttpResponse.json({
+      status: 'ok',
+      engine: 'Mock MPI engine',
+      api_version: '1.4.0',
+    }),
   ),
   http.get(url('/config'), () => HttpResponse.json(config)),
   http.get(url('/fields'), ({ request }) => {
@@ -291,7 +307,14 @@ export const handlers = [
     if (!file || typeof file === 'string') return invalid('Choose a NetCDF file.');
     const p = makePlane(640, 360);
     p.data = p.data.map((n, k) => (k % 167 === 0 ? NaN : 260 + n * 40));
-    return HttpResponse.json(createField(file.name, p, file), { status: 201 });
+    const field = createField(file.name, p, file);
+    field.variables[0].spacing = {
+      dx: 1500,
+      dy: 2000,
+      length_unit: 'm',
+      approximate: true,
+    };
+    return HttpResponse.json(field, { status: 201 });
   }),
   http.post(url('/fields/drawn'), async ({ request }) => {
     const f = await request.formData(),

@@ -32,7 +32,8 @@ for (const width of [375, 768, 1440]) {
     await page.goto('/');
     await expect(page.getByText('Mock engine')).toBeVisible();
     await page.addScriptTag({ path: require.resolve('axe-core/axe.min.js') });
-    await page.getByText('Grid & value range').click();
+    await expect(page.getByLabel('Columns')).toBeVisible();
+    await expect(page.getByLabel('Value min')).toBeVisible();
     await page.getByText('What am I looking at?').click();
     await audit(page, 'Draw and explainer');
     await page.getByRole('button', { name: 'Expand viewport' }).click();

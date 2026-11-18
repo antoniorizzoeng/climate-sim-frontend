@@ -256,6 +256,9 @@ export function UploadControls({
                 )}
               </label>
             ))}
+          {variable.spacing?.approximate && (
+            <p className="hint">Coordinate spacing is approximate.</p>
+          )}
           {selection.field.state === 'archived' && (
             <p className="hint">Archived field. Starting a run reactivates it.</p>
           )}

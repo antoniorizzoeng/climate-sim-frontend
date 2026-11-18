@@ -5,6 +5,9 @@ import { gradient, numberText, type ColorMap } from '@/lib/model';
 type Props = {
   nx: number;
   ny: number;
+  nz?: number;
+  headerControls?: React.ReactNode;
+  referenceTime?: string;
   map: ColorMap;
   range: number[];
   children: React.ReactNode;
@@ -18,6 +21,9 @@ type Props = {
 export function Viewport({
   nx,
   ny,
+  nz,
+  headerControls,
+  referenceTime,
   map,
   range,
   children,
@@ -66,16 +72,18 @@ export function Viewport({
           Field viewport
         </h2>
         <div className="inline">
-          <span className="mode-tag">{mode}</span>
-          <button
-            className={'icon-btn' + (grid ? ' on' : '')}
-            title="Toggle coordinate grid"
-            aria-label="Toggle coordinate grid"
-            aria-pressed={grid}
-            onClick={() => setGrid(!grid)}
-          >
-            <Grid2X2 size={16} />
-          </button>
+          {headerControls ?? <span className="mode-tag">{mode}</span>}
+          {!nz && (
+            <button
+              className={'icon-btn' + (grid ? ' on' : '')}
+              title="Toggle coordinate grid"
+              aria-label="Toggle coordinate grid"
+              aria-pressed={grid}
+              onClick={() => setGrid(!grid)}
+            >
+              <Grid2X2 size={16} />
+            </button>
+          )}
           <button
             className="icon-btn"
             ref={expandButton}
@@ -92,13 +100,13 @@ export function Viewport({
       <div className={reference ? 'compare-plots' : ''}>
         {reference && (
           <div>
-            <div className="plot-caption">First · frame 1</div>
+            <div className="plot-caption">First · frame 1 · {referenceTime}</div>
             {plot(reference)}
           </div>
         )}
         <div>
           {reference && <div className="plot-caption">{currentLabel}</div>}
-          {plot(children)}
+          {nz ? children : plot(children)}
         </div>
       </div>
       <div className="legend">
@@ -117,7 +125,8 @@ export function Viewport({
       <footer className="viewport-foot">
         <span>
           <i className="dot peach" />
-          {nx} × {ny} <em>cells</em>
+          {nx} × {ny}
+          {nz && ` × ${nz}`} <em>cells</em>
         </span>
         <span>{readout || 'x, y · cell coordinates'}</span>
       </footer>

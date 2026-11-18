@@ -6,7 +6,9 @@ export type Run = S['Run'];
 export type RequestBody = S['RunRequest'];
 export type Source = S['RunSource'];
 export type Config = S['ServerConfig'];
-export type Conditions = Omit<RequestBody, 'source'> & { nz?: number };
+export type Conditions = Omit<RequestBody, 'source' | 'processes' | 'name'> & {
+  nz?: number;
+};
 export type Boundary = S['BoundaryCondition'];
 export type ColorMap = S['Colormap'];
 export type Plane = { nx: number; ny: number; data: Float32Array };
@@ -21,7 +23,55 @@ export type PlaneSelection = {
 };
 export type Pattern = 'Hotspot' | 'Stripes' | 'Noise' | 'Clear';
 
+export type Units = S['Units'];
+export const systems = {
+  km: { length: 'km', time: 'h' },
+  m: { length: 'm', time: 's' },
+  cell: { length: 'cell', time: 't' },
+} as const;
+
+export function changeUnits(
+  model: Conditions,
+  units: Units,
+  convert: boolean,
+): Conditions {
+  const old = model.units ?? systems.km;
+  const next = { ...model, units };
+  if (!convert || old.length === 'cell' || units.length === 'cell') return next;
+  const length = (old.length === 'km' ? 1000 : 1) / (units.length === 'km' ? 1000 : 1);
+  const time = (old.time === 'h' ? 3600 : 1) / (units.time === 'h' ? 3600 : 1);
+  for (const k of ['dx', 'dy', 'dz'] as const)
+    if (next[k] !== undefined) next[k] *= length;
+  for (const k of ['vx', 'vy', 'vz'] as const)
+    if (next[k] !== undefined) next[k] *= length / time;
+  for (const k of ['D', 'Dz'] as const)
+    if (next[k] !== undefined) next[k] *= (length * length) / time;
+  next.dt *= time;
+  return clampTimeStep(next);
+}
+
+export function applySpacing(
+  model: Conditions,
+  spacing?: S['GridSpacing'] | null,
+  verticalOnly = false,
+) {
+  const unit = model.units?.length ?? 'km';
+  if (!spacing || unit === 'cell') return model;
+  const scale = spacing.length_unit === unit ? 1 : unit === 'km' ? 0.001 : 1000;
+  return clampTimeStep({
+    ...model,
+    ...(!verticalOnly && { dx: spacing.dx * scale, dy: spacing.dy * scale }),
+    ...(model.nz && spacing.dz != null && { dz: spacing.dz * scale }),
+  });
+}
+
+export function frameTime(run: Run, n: number) {
+  const step = Math.min(n * run.resolved.out_every, run.resolved.steps);
+  return `t = ${numberText(step * run.resolved.dt)} ${run.request.units?.time ?? 't'}`;
+}
+
 export const defaults: Conditions = {
+  units: systems.km,
   D: 0.08,
   vx: 0.8,
   vy: 0.25,
