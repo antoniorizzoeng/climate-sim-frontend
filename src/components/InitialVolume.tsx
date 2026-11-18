@@ -4,6 +4,7 @@ import { message } from '@/lib/api';
 import type { ColorMap, Conditions, Plane, PlaneSelection, Volume } from '@/lib/model';
 import { createVolumeScene } from '@/lib/volumeScene';
 import { Viewport } from './Viewport';
+import { WebGLHelp } from './WebGLHelp';
 
 function Scene({
   volume,
@@ -54,6 +55,7 @@ function Scene({
       {error && (
         <div role="status" className="plot-message">
           {error}
+          <WebGLHelp error={error} />
         </div>
       )}
     </>

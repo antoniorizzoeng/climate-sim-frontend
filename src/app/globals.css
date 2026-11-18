@@ -395,6 +395,28 @@ h1 {
   grid-column: 2;
   padding: 6px 0 10px;
 }
+.webgl-help {
+  max-width: 560px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.webgl-help p {
+  margin: 0 0 6px;
+}
+.webgl-help ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+.webgl-help strong {
+  color: var(--text);
+}
+.webgl-help code {
+  font-size: 12px;
+}
 .plot-message,
 .empty {
   display: flex;

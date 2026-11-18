@@ -3,6 +3,7 @@ import { Box } from 'lucide-react';
 import { loadVolume, message, type Colors } from '@/lib/api';
 import { frameTime, gradient, numberText, type Run, type Volume } from '@/lib/model';
 import { createVolumeScene } from '@/lib/volumeScene';
+import { WebGLHelp } from './WebGLHelp';
 
 type Entry = { controller: AbortController; task: Promise<Volume> };
 
@@ -118,6 +119,7 @@ export default function VolumePlayer({
                 : available
                   ? 'Loading volume…'
                   : 'Waiting for a frame…')}
+            {failure && <WebGLHelp error={failure} />}
             {error && !failure && (
               <button className="secondary" onClick={() => setRetry((v) => v + 1)}>
                 Retry frame

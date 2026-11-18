@@ -22,6 +22,7 @@ import {
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { colorTable, type ColorMap, type Volume } from './model';
+import { WEBGL_UNAVAILABLE } from './webgl';
 
 export function volumeTexture(
   volume: Volume,
@@ -89,8 +90,7 @@ const fragmentShader = `
 export function createVolumeScene(host: HTMLDivElement, dimensions: number[]) {
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('webgl2', { alpha: true, antialias: true });
-  if (!context)
-    throw new Error('WebGL2 is unavailable. Choose a 2D view to explore the field.');
+  if (!context) throw new Error(WEBGL_UNAVAILABLE);
   const renderer = new WebGLRenderer({ canvas, context, alpha: true, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   const scene = new Scene();
