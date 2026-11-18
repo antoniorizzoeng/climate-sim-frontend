@@ -1,13 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import {
-  bestWindow,
-  clockTime,
-  loadSites,
-  storeSites,
-  tenMinutes,
-  type SiteSample,
-} from '@/lib/sky';
+import { bestWindow, clockTime, tenMinutes, type SiteSample } from '@/lib/sky';
+import { loadSites, storeSites } from '@/lib/settings';
 import { SeeingStrip, SkyChart } from '@/components/sky/SkyChart';
 import { SitePicker } from '@/components/sky/SitePicker';
 import { createNowcast } from '@/mocks/nowcasts';

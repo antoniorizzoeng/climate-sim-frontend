@@ -34,33 +34,6 @@ export function validElevation(elevation: number | null | undefined) {
   );
 }
 
-const siteKey = 'climatesim.sky.sites';
-export function loadSites(): SavedSite[] {
-  try {
-    const saved: unknown = JSON.parse(window.localStorage.getItem(siteKey) ?? '[]');
-    return Array.isArray(saved)
-      ? saved.filter(
-          (s) =>
-            s &&
-            typeof s.name === 'string' &&
-            s.name.trim() &&
-            validCoordinates(s.lat, s.lon) &&
-            validElevation(s.elevation_m),
-        )
-      : [];
-  } catch {
-    return [];
-  }
-}
-export function storeSites(sites: SavedSite[]) {
-  try {
-    window.localStorage.setItem(siteKey, JSON.stringify(sites));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 const clockOptions = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' } as const;
 const clock = new Intl.DateTimeFormat(undefined, clockOptions);
 const stamp = new Intl.DateTimeFormat(undefined, {
@@ -103,24 +76,6 @@ export function bestWindow(site: Pick<SiteSample, 'time' | 'nowcast' | 'seeing'>
 export function seeingHours<T extends Pick<SiteSample, 'time'>>(site: T[]) {
   const hour = (s: T) => Math.floor(Date.parse(s.time) / 3_600_000);
   return site.filter((s, i) => !i || hour(s) !== hour(site[i - 1]));
-}
-
-const mapStorageKey = 'climatesim.sky.mapKey';
-export function loadMapKey() {
-  try {
-    return window.localStorage.getItem(mapStorageKey)?.trim() ?? '';
-  } catch {
-    return '';
-  }
-}
-export function storeMapKey(key: string) {
-  try {
-    if (key) window.localStorage.setItem(mapStorageKey, key);
-    else window.localStorage.removeItem(mapStorageKey);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 // lat0/lon0 locate a cell centre. MapLibre expects the outer image corners,

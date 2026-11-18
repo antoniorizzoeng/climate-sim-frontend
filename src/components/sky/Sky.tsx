@@ -1,14 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Activity, BookOpen, Clock3, RefreshCw, Trash2 } from 'lucide-react';
 import { api, checked, message } from '@/lib/api';
+import { useMapKey } from '@/lib/settings';
 import type { Run } from '@/lib/model';
-import {
-  loadMapKey,
-  layerNames,
-  localStamp,
-  type Nowcast,
-  type NowcastParams,
-} from '@/lib/sky';
+import { layerNames, localStamp, type Nowcast, type NowcastParams } from '@/lib/sky';
 import { SitePicker } from './SitePicker';
 import { SkyChart } from './SkyChart';
 import { SkyGrid } from './SkyGrid';
@@ -100,7 +95,7 @@ export function Sky({ online }: { online: boolean }) {
     [pollError, setPollError] = useState('');
   const [listVersion, reloadList] = useState(0),
     [attempt, retry] = useState(0);
-  const [mapKey, setMapKey] = useState(loadMapKey);
+  const mapKey = useMapKey();
   const id = selected?.id;
   useEffect(() => {
     if (!online) return;
@@ -306,7 +301,6 @@ export function Sky({ online }: { online: boolean }) {
       <div className="sky-picker-slot">
         <SitePicker
           mapKey={mapKey}
-          onKey={setMapKey}
           busy={busy || !online}
           run={submit}
           siteElevation={selected?.site_elevation}

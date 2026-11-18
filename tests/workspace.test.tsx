@@ -47,6 +47,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  window.history.replaceState(null, '', '/');
   server.resetHandlers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();

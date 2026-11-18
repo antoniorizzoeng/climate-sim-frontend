@@ -1,14 +1,17 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Sky } from '@/components/sky/Sky';
 import { LayerMovies } from '@/components/sky/LayerMovies';
-import {
-  loadMapKey,
-  storeMapKey,
-  gridCorners,
-  type Nowcast,
-  type SiteSample,
-} from '@/lib/sky';
+import { gridCorners, type Nowcast, type SiteSample } from '@/lib/sky';
+import { loadMapKey, storeMapKey } from '@/lib/settings';
+import { Settings } from '@/components/settings/Settings';
 import { createNowcast } from '@/mocks/nowcasts';
 import { simulation } from './fixtures/simulation';
 
@@ -52,6 +55,7 @@ vi.mock('maplibre-gl', () => ({ Map: MockMap, Marker: MockMarker }));
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  storeMapKey('');
   localStorage.clear();
   MockMap.instances.length = 0;
   MockMarker.instances.length = 0;
@@ -80,7 +84,12 @@ it('keeps maps off without a key, searches with the visitor key, applies places 
     return Response.json({ items: [], next_cursor: null });
   });
   vi.stubGlobal('fetch', fetch);
-  render(<Sky online />);
+  render(
+    <>
+      <Sky online />
+      <Settings section="maps" />
+    </>,
+  );
   expect(screen.queryByLabelText('Address or place')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Choose on map' })).toBeNull();
   expect(MockMap.instances).toHaveLength(0);
@@ -89,10 +98,13 @@ it('keeps maps off without a key, searches with the visitor key, applies places 
       ([input]) => input instanceof Request && !input.url.includes('maptiler'),
     ),
   ).toBe(true);
-  fireEvent.click(screen.getByText('Map key'));
   const input = screen.getByLabelText('MapTiler API key');
   fireEvent.change(input, { target: { value: ' visitor-key ' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+  fireEvent.click(
+    within(screen.getByRole('region', { name: 'Maps' })).getByRole('button', {
+      name: 'Save',
+    }),
+  );
   expect(loadMapKey()).toBe('visitor-key');
   fireEvent.change(screen.getByLabelText('Address or place'), {
     target: { value: 'Mont Blanc' },
@@ -110,8 +122,7 @@ it('keeps maps off without a key, searches with the visitor key, applies places 
   expect(screen.getByLabelText('Longitude (°)')).toHaveValue(-179);
   fireEvent.click(screen.getByRole('button', { name: 'Run nowcast' }));
   await screen.findByText('Test submission');
-  fireEvent.change(input, { target: { value: '' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
   expect(MockMap.instances[0].remove).toHaveBeenCalledOnce();
   expect(loadMapKey()).toBe('');
   expect(screen.queryByLabelText('Address or place')).toBeNull();
@@ -121,13 +132,20 @@ it('keeps the key session usable when browser storage is blocked', () => {
     throw new Error('blocked');
   });
   expect(loadMapKey()).toBe('');
-  expect(storeMapKey('example')).toBe(false);
-  render(<Sky online={false} />);
-  fireEvent.click(screen.getByText('Map key'));
+  render(
+    <>
+      <Sky online={false} />
+      <Settings section="maps" />
+    </>,
+  );
   fireEvent.change(screen.getByLabelText('MapTiler API key'), {
     target: { value: 'example' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+  fireEvent.click(
+    within(screen.getByRole('region', { name: 'Maps' })).getByRole('button', {
+      name: 'Save',
+    }),
+  );
   expect(screen.getByText(/applies to this visit/)).toBeVisible();
   expect(screen.getByLabelText('Address or place')).toBeVisible();
 });

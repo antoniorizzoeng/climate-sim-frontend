@@ -64,12 +64,15 @@ test('the Pages export runs simulations and nowcasts in the browser', async ({
   );
   await expect(page.getByText('No matching fields.')).toBeVisible();
 
+  await page.goto('./?view=sky');
   await page.clock.setSystemTime(new Date('2026-11-17T21:00:00Z'));
-  await page.getByRole('button', { name: 'Sky', exact: true }).click();
-  const mapKey = page.getByText('Map key Optional', { exact: true });
-  await mapKey.click();
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  await expect(page).toHaveURL(baseURL + '?view=settings&section=maps');
   await expect(page.getByLabel('MapTiler API key')).toBeVisible();
-  await mapKey.click();
+  await page.reload();
+  await expect(page.getByLabel('MapTiler API key')).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole('heading', { name: 'Observing sky' })).toBeVisible();
   await page.getByLabel('Latitude (°)').fill('19.82');
   await page.getByLabel('Longitude (°)').fill('-155.47');
   await expect(page.getByLabel('Elevation (m)')).toHaveValue('');

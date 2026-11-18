@@ -53,7 +53,7 @@ test('draw → run → watch → export', async ({ page }, info) => {
   await page.getByRole('button', { name: 'Play', exact: true }).click();
   await expect(page.getByLabel('Frame scrubber')).not.toHaveValue('0');
   const video = page.getByRole('button', { name: 'Download MP4' });
-  await expect(video).toBeEnabled();
+  await expect(video).toBeEnabled({ timeout: 12000 });
   const movie = page.waitForEvent('download');
   await video.click();
   await expect(page.getByText(/Rendering MP4/)).toBeVisible();

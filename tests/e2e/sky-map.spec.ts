@@ -56,9 +56,10 @@ test('uses the bundled MapLibre renderer with a local fixture for MapTiler', asy
   await page.goto('/');
   await expect(page.getByText('Mock engine')).toBeVisible();
   await page.getByRole('button', { name: 'Sky', exact: true }).click();
-  await page.getByText('Map key', { exact: false }).first().click();
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
   await page.getByLabel('MapTiler API key').fill('browser-fixture');
-  await page.getByRole('button', { name: 'Apply' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const elevation = page.getByLabel('Elevation (m)');
   await elevation.fill('4205');
   await page.getByLabel('Address or place').fill('Teide');
