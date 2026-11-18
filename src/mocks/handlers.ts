@@ -153,7 +153,7 @@ const makeRun = (body: RequestBody) => {
   if (body.source.kind === 'field' && !fields.has(body.source.field_id))
     return missing();
   const v = validate(body);
-  return v.resolved
+  return v.ok && v.resolved
     ? HttpResponse.json(start(body, v.resolved), { status: 202 })
     : HttpResponse.json({ detail: v.errors }, { status: 422 });
 };
@@ -335,7 +335,7 @@ export const handlers = [
     HttpResponse.json({
       status: 'ok',
       engine: 'Mock MPI engine',
-      api_version: '1.5.0',
+      api_version: '1.6.0',
     }),
   ),
   http.get(url('/config'), () => HttpResponse.json(config)),

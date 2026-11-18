@@ -89,12 +89,14 @@ export function ConditionsForm({
   volumeLayers,
   onDimensionChange,
   approximate,
+  gridEstimate,
 }: {
   model: Model;
   change: (m: Model) => void;
   config: Config;
   volumeLayers?: number;
   approximate?: boolean;
+  gridEstimate?: React.ReactNode;
   onDimensionChange?: (three: boolean) => void;
 }) {
   const limit = dtMax(model),
@@ -202,11 +204,19 @@ export function ConditionsForm({
               update={(v) => update(withLayers(model, v!))}
             />
           )}
-          {field('dz', `Grid spacing dz (${units.length})`, Number.MIN_VALUE)}
           {field('Dz', `Vertical diffusion Dz (${diffusion})`, 0)}
           {field('vz', `Velocity vz (${speed})`)}
         </div>
       )}
+      <div className="input-grid">
+        {field('dx', `Grid spacing dx (${units.length})`, Number.MIN_VALUE)}
+        {field('dy', `Grid spacing dy (${units.length})`, Number.MIN_VALUE)}
+        {model.nz && field('dz', `Grid spacing dz (${units.length})`, Number.MIN_VALUE)}
+      </div>
+      {approximate && (
+        <p className="hint">Uploaded coordinate spacing is approximate.</p>
+      )}
+      {gridEstimate}
       <div className="input-grid">
         {field('D', `Diffusion D (${diffusion})`, 0)}
         {field('dt', `Time step dt (${units.time})`, Number.MIN_VALUE)}
@@ -281,19 +291,6 @@ export function ConditionsForm({
           </p>
         )}
       </div>
-      {approximate && (
-        <p className="hint">Uploaded coordinate spacing is approximate.</p>
-      )}
-      <details>
-        <summary>
-          <span>Advanced conditions</span>
-          <small>Grid spacing</small>
-        </summary>
-        <div className="input-grid">
-          {field('dx', `Grid spacing dx (${units.length})`, Number.MIN_VALUE)}
-          {field('dy', `Grid spacing dy (${units.length})`, Number.MIN_VALUE)}
-        </div>
-      </details>
     </div>
   );
 }

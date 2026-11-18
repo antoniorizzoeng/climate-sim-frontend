@@ -195,8 +195,8 @@ function prepare(record: Nowcast) {
     body.steps *= substeps;
     body.dt /= substeps;
     body.out_every = substeps;
-    const resolved = validate(body).resolved;
-    if (!resolved) throw new Error('Invalid mock cloud transport parameters.');
+    const { ok, resolved } = validate(body);
+    if (!ok || !resolved) throw new Error('Invalid mock cloud transport parameters.');
     return {
       layer,
       run_id: start(body, resolved).id,

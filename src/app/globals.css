@@ -104,7 +104,6 @@ a {
 .inline,
 .with-icon,
 .connection,
-.solver-tag,
 .panel-head,
 .panel-head h2,
 .spread,
@@ -251,15 +250,6 @@ h1 {
   margin: 0;
   color: var(--muted);
   font-size: 14px;
-}
-.solver-tag {
-  gap: 8px;
-  color: #cac8c8;
-  background: #1c1e23;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  font: 11px var(--mono);
-  padding: 7px 11px;
 }
 .workspace-grid {
   display: grid;
@@ -1313,19 +1303,30 @@ input[type='range'] {
   padding-inline: 13px;
 }
 
-.solver-tag {
-  white-space: nowrap;
-  color: var(--text);
-  background: var(--panel);
-}
-.solver-tag:hover {
-  background: var(--raised);
-}
 .preview-switch button {
   padding: 4px 8px;
 }
 .field-grid {
   margin-bottom: 17px;
+}
+.field-grid:has(+ .grid-estimate) {
+  margin-bottom: 8px;
+}
+.field-grid + .grid-estimate {
+  margin-bottom: 17px;
+}
+.grid-estimate {
+  display: grid;
+  gap: 4px;
+}
+.grid-estimate p {
+  margin: 0;
+}
+.engine-output pre {
+  font: 12px/1.5 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
 }
 .field-grid .input-grid:has(> :nth-child(3)) {
   align-items: end;

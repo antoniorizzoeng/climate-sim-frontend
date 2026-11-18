@@ -36,6 +36,7 @@ test('the Pages export runs simulations and nowcasts in the browser', async ({
   });
   expect(worker).toEqual({ scope: baseURL, script: baseURL + 'mockServiceWorker.js' });
 
+  await expect(page.getByText(/^Memory ≈ .* of 6.8 GB$/)).toBeVisible();
   await page.getByRole('button', { name: 'Conditions', exact: true }).click();
   await page.getByLabel('Steps', { exact: true }).fill('16');
   await page.getByLabel('Frames to keep').fill('5');

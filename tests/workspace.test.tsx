@@ -1,4 +1,11 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
@@ -277,7 +284,9 @@ it('reconnects and validates a drawing before starting, reusing an unchanged sav
   expect(screen.getByRole('button', { name: 'Run simulation' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
   await screen.findByText('Engine online');
-  fireEvent.click(screen.getByRole('button', { name: 'Switch to 3D solver' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Conditions' }));
+  fireEvent.click(screen.getByRole('button', { name: '3D' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Initial field' }));
   fireEvent.change(screen.getByLabelText('Extrude to N layers'), {
     target: { value: '4' },
   });
@@ -408,7 +417,8 @@ it('reads health independently and sends the same named request with units and a
   const bodies: RequestBody[] = [];
   server.use(
     http.post(baseUrl + '/runs/validate', async ({ request }) => {
-      bodies.push((await request.json()) as RequestBody);
+      const body = (await request.json()) as RequestBody;
+      if (body.name) bodies.push(body);
       return HttpResponse.json({
         ok: true,
         warnings: ['Review size'],
@@ -430,12 +440,19 @@ it('reads health independently and sends the same named request with units and a
   expect(screen.getByLabelText('Columns')).toBeVisible();
   expect(screen.getByLabelText('Rows')).toBeVisible();
   expect(screen.queryByLabelText('Extrude to N layers')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Switch to 3D solver' }));
-  expect(screen.getByLabelText('Extrude to N layers')).toHaveValue(16);
-  fireEvent.click(screen.getByRole('button', { name: 'Switch to 2D solver' }));
-  expect(screen.queryByRole('dialog')).toBeNull();
-  expect(screen.queryByLabelText('Extrude to N layers')).toBeNull();
+  expect(screen.queryByRole('button', { name: /switch to .* solver/i })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Conditions' }));
+  const dimensions = within(
+    screen.getByRole('group', { name: 'Simulation dimensions' }),
+  );
+  fireEvent.click(dimensions.getByRole('button', { name: '3D' }));
+  expect(screen.getByLabelText('Layers nz')).toHaveValue(16);
+  expect(screen.getByLabelText('Grid spacing dz (km)')).toBeVisible();
+  fireEvent.click(dimensions.getByRole('button', { name: '2D' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.queryByLabelText('Layers nz')).toBeNull();
+  expect(screen.getByLabelText('Grid spacing dx (km)')).toBeVisible();
+  expect(screen.getByLabelText('Grid spacing dy (km)')).toBeVisible();
   fireEvent.change(screen.getByLabelText('Unit system'), { target: { value: 'm' } });
   expect(screen.getByText(/200 s simulated/)).toBeVisible();
   expect(screen.queryByLabelText(/MPI processes/)).toBeNull();
@@ -467,4 +484,98 @@ it('hides an unavailable API version while configuration stays usable', async ()
   await screen.findByText('Engine online');
   expect(screen.queryByText(/API v/)).toBeNull();
   expect(screen.getByRole('button', { name: 'Run simulation' })).toBeEnabled();
+});
+
+it('shows the memory estimate and blocks a grid over capacity until it fits', async () => {
+  const submit = vi.fn(() => HttpResponse.json(queued));
+  const save = vi.fn(() => HttpResponse.json(field));
+  const reason = 'Needs about 30.3 GB of memory; use fewer layers or a smaller grid.';
+  server.use(
+    http.post(baseUrl + '/fields/drawn', save),
+    http.post(baseUrl + '/runs', submit),
+    http.post(baseUrl + '/runs/validate', async ({ request }) => {
+      const body = (await request.json()) as RequestBody;
+      const over = body.source.kind === 'preset' && body.source.nz === 1024;
+      return HttpResponse.json({
+        ok: !over,
+        warnings: [],
+        errors: over ? [{ loc: ['body', 'source'], msg: reason }] : [],
+        resolved: {
+          ...queued.resolved,
+          estimated_memory_bytes: over ? 30.3e9 : 3.3e9,
+        },
+      });
+    }),
+  );
+  render(<Workspace />);
+  await screen.findByText('Memory ≈ 3.3 GB of 6.8 GB');
+  fireEvent.click(screen.getByRole('button', { name: 'Conditions' }));
+  fireEvent.click(screen.getByRole('button', { name: '3D' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Initial field' }));
+  const layers = screen.getByLabelText('Extrude to N layers');
+  fireEvent.change(layers, { target: { value: '1024' } });
+  const error = await screen.findByRole('alert');
+  expect(error).toHaveTextContent(reason);
+  expect(error.closest('fieldset')).toContainElement(layers);
+  expect(screen.getByText('Memory ≈ 30.3 GB of 6.8 GB')).toHaveClass('error');
+  const run = screen.getByRole('button', { name: 'Run simulation' });
+  expect(run).toBeDisabled();
+  fireEvent.click(run);
+  expect(submit).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.change(layers, { target: { value: '105' } });
+  await screen.findByText('Memory ≈ 3.3 GB of 6.8 GB');
+  expect(run).toBeEnabled();
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('shows the human reason and collapses raw engine output when no frames were written', async () => {
+  const reason = 'The engine ran out of memory and was stopped by the system.';
+  const raw = '----\n  Per user-direction, the job has been aborted\n----';
+  server.use(
+    http.post(baseUrl + '/runs', () =>
+      HttpResponse.json({ ...queued, status: 'error', message: reason + '\r\n' + raw }),
+    ),
+  );
+  render(<Workspace />);
+  await screen.findByText('Engine online');
+  fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(reason);
+  expect(await screen.findAllByText('No frames were written')).toHaveLength(2);
+  expect(screen.queryByText('Waiting for a frame…')).toBeNull();
+  for (const name of [
+    'Download MP4',
+    'Frame PNG',
+    'Result.nc',
+    'Smooth pixels',
+    'Volume',
+  ])
+    expect(screen.queryByRole('button', { name })).toBeNull();
+  expect(screen.queryByText('Frame appearance')).toBeNull();
+  expect(screen.queryByText('Export simulation')).toBeNull();
+  const disclosure = screen.getByText('Engine output');
+  const details = disclosure.closest('details')!;
+  expect(details.open).toBe(false);
+  const pre = details.querySelector('pre')!;
+  expect(pre.textContent).toBe(raw);
+  fireEvent.click(disclosure);
+  expect(details.open).toBe(true);
+  expect(pre).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Back to setup' }));
+  expect(screen.getByRole('heading', { name: 'Configuration' })).toBeVisible();
+});
+
+it('keeps frame appearance and PNG export available for a failed run with frames', async () => {
+  server.use(
+    http.post(baseUrl + '/runs', () =>
+      HttpResponse.json({ ...done, status: 'error', message: 'Solver stopped.' }),
+    ),
+  );
+  render(<Workspace />);
+  await screen.findByText('Engine online');
+  fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+  expect(await screen.findByRole('button', { name: 'Frame PNG' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Download MP4' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Result.nc' })).toBeDisabled();
+  expect(screen.getByText('Frame appearance')).toBeVisible();
 });

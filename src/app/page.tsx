@@ -7,7 +7,6 @@ import {
   Activity,
   ArrowRight,
   BookOpen,
-  Box,
   ChevronRight,
   CircleDot,
   FlaskConical,
@@ -18,6 +17,7 @@ import {
   Paintbrush,
   Play,
   RotateCcw,
+  ScanLine,
   Settings as SettingsIcon,
   SlidersHorizontal,
   Telescope,
@@ -41,6 +41,7 @@ import {
   type PlaneSelection,
   type Run,
   type Source,
+  type RequestBody,
   cleanRange,
   withLayers,
 } from '@/lib/model';
@@ -65,6 +66,17 @@ import { History } from '@/components/History';
 import { Settings } from '@/components/settings/Settings';
 import { closeSettings, navigate, useNavigation } from '@/lib/navigation';
 import { useUnitSystem } from '@/lib/settings';
+import { bytes } from '@/lib/history';
+import type { components } from '@/lib/schema';
+
+type RunValidation = components['schemas']['RunValidation'];
+
+function memoryIssue(validation?: RunValidation) {
+  const resolved = validation?.resolved;
+  return resolved && resolved.estimated_memory_bytes > resolved.memory_capacity_bytes
+    ? validation.errors.find((issue) => issue.loc.join('.') === 'body.source')
+    : undefined;
+}
 
 const InitialVolume = dynamic(() => import('@/components/InitialVolume'), {
   ssr: false,
@@ -140,7 +152,10 @@ export default function Workspace() {
   const [volumePreview, setVolumePreview] = useState(false);
   const [chooseSlice, setChooseSlice] = useState(false);
   const [runName, setRunName] = useState('');
-  const [ranks, setRanks] = useState<number>();
+  const [setupValidation, setSetupValidation] = useState<{
+    request: RequestBody;
+    result: RunValidation;
+  }>();
   const [checkingLayers, setCheckingLayers] = useState(false);
   const comparison = useRef<AbortController | null>(null);
   useEffect(() => () => comparison.current?.abort(), [view, selection, mode]);
@@ -221,7 +236,6 @@ export default function Workspace() {
   function clearReview() {
     setError('');
     setWarnings([]);
-    setRanks(undefined);
     reviewed.current = '';
   }
   function select(s: PlaneSelection) {
@@ -285,60 +299,134 @@ export default function Workspace() {
   const needFill =
     (!!stats?.missing_count && fill === '') ||
     (fill !== '' && !Number.isFinite(Number(fill)));
+  const uploadReady = !!selection && !needFill && !!uploaded.ready;
+  const fillValue =
+    (stats?.missing_count || !stats || selection?.volume) && fill !== ''
+      ? Number(fill)
+      : undefined;
+  const { nx: columns, ny: rows } = plane;
+  const setupRequest = useMemo((): RequestBody | undefined => {
+    if (!config) return;
+    const { nz, ...solver } = conditions;
+    let source: Source;
+    if (mode === 'upload') {
+      if (!selection || !uploadReady) return;
+      source = {
+        kind: 'field',
+        field_id: selection.field.id,
+        var: selection.variable,
+        index: selection.index,
+        ...(nz && (selection.volume ? { volume: true } : { replicate_z: nz })),
+        ...(fillValue !== undefined && { fill_value: fillValue }),
+      };
+    } else {
+      // A preset of the same size estimates an unsaved drawing without storing a field.
+      const estimatePreset = preset ?? config.presets[0];
+      if (!estimatePreset) return;
+      source = {
+        kind: 'preset',
+        preset: estimatePreset,
+        nx: columns,
+        ny: rows,
+        ...(nz && { nz }),
+      };
+    }
+    return { ...solver, source };
+  }, [
+    config,
+    conditions,
+    mode,
+    selection,
+    uploadReady,
+    fillValue,
+    preset,
+    columns,
+    rows,
+  ]);
+
+  useEffect(() => {
+    if (!setupRequest || run || busy || view !== 'workspace') return;
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const result = checked(
+          await api.POST('/runs/validate', {
+            body: setupRequest,
+            signal: controller.signal,
+          }),
+        );
+        if (!controller.signal.aborted)
+          setSetupValidation({ request: setupRequest, result });
+      } catch {
+        // Launch validates again and reports request failures.
+      }
+    }, 250);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [setupRequest, run, busy, view]);
+
+  const validation =
+    setupValidation?.request === setupRequest ? setupValidation?.result : undefined;
+  const memoryError = memoryIssue(validation);
+  const resolved = validation?.resolved;
+  const estimate = resolved && (
+    <div className="grid-estimate">
+      <p className="hint">Output ≈ {bytes(resolved.estimated_output_bytes, true)}</p>
+      {Number.isFinite(resolved.estimated_memory_bytes) &&
+        Number.isFinite(resolved.memory_capacity_bytes) && (
+          <p className={memoryError ? 'error' : 'hint'}>
+            Memory ≈ {bytes(resolved.estimated_memory_bytes, true)} of{' '}
+            {bytes(resolved.memory_capacity_bytes, true)}
+          </p>
+        )}
+      {memoryError && (
+        <p className="error" role="alert">
+          {memoryError.msg}
+        </p>
+      )}
+    </div>
+  );
   const canStart =
-    !!config &&
-    !busy &&
-    (mode === 'draw' || (!!selection && !needFill && !!uploaded.ready));
+    !!config && !busy && !memoryError && (mode === 'draw' || uploadReady);
   async function launch() {
     if (!canStart) return;
     setEditedConditions(conditions);
     setBusy(true);
     setError('');
     try {
-      let source: Source;
       const { nz, ...solver } = conditions;
-      if (mode === 'draw' && preset) {
-        source = {
-          kind: 'preset',
-          preset,
-          nx: plane.nx,
-          ny: plane.ny,
-          ...(nz && { nz }),
-        };
-      } else if (mode === 'draw') {
+      let source = setupRequest?.source;
+      if (mode === 'draw' && !preset) {
         const field =
           saved.current?.plane === plane
             ? saved.current.field
             : await saveDrawing(plane, isExample ? pattern : undefined);
         saved.current = { plane, field };
         source = { kind: 'field', field_id: field.id, ...(nz && { replicate_z: nz }) };
-      } else {
-        if (!selection) return;
-        source = {
-          kind: 'field',
-          field_id: selection.field.id,
-          var: selection.variable,
-          index: selection.index,
-          ...(nz && (selection.volume ? { volume: true } : { replicate_z: nz })),
-          ...((stats?.missing_count || !stats || selection.volume) && fill !== ''
-            ? { fill_value: Number(fill) }
-            : {}),
-        };
       }
+      if (!source) return;
       const body = {
-          ...solver,
-          ...(runName.trim() && { name: runName.trim() }),
-          source,
-        },
-        signature = JSON.stringify(body);
+        ...solver,
+        ...(runName.trim() && { name: runName.trim() }),
+        source,
+      };
+      const signature = JSON.stringify(body);
       const validation = checked(await api.POST('/runs/validate', { body }));
       setWarnings(validation.warnings);
-      setRanks(validation.resolved?.processes);
-      if (!validation.ok)
-        throw new Error(
-          validation.errors.map((i) => i.loc.join('.') + ' — ' + i.msg).join('\n') ||
-            'Run validation failed.',
-        );
+      if (setupRequest)
+        setSetupValidation({ request: setupRequest, result: validation });
+      if (!validation.ok) {
+        const issue = setupRequest && memoryIssue(validation);
+        const otherErrors = validation.errors.filter((error) => error !== issue);
+        if (otherErrors.length || !issue)
+          setError(
+            otherErrors.map((i) => i.loc.join('.') + ' — ' + i.msg).join('\n') ||
+              'Run validation failed.',
+          );
+        return;
+      }
       const ticket = signature + JSON.stringify(validation.warnings);
       if (validation.warnings.length && reviewed.current !== ticket) {
         reviewed.current = ticket;
@@ -468,6 +556,8 @@ export default function Workspace() {
           ),
         );
   const fillColor = colorTable(previewMap)[fillIndex];
+  const failedWithoutFrames = run?.status === 'error' && run.frames === 0;
+  const [runReason, ...engineOutput] = run?.message?.split(/\r?\n/) ?? [];
   return (
     <>
       <header className="app-header">
@@ -556,17 +646,6 @@ export default function Workspace() {
                     : 'Create an initial field, configure the solver, and explore its evolution.'}
             </p>
           </div>
-          {view === 'workspace' && !run && (
-            <button
-              className="solver-tag"
-              aria-label={`Switch to ${conditions.nz ? '2D' : '3D'} solver`}
-              disabled={busy}
-              onClick={() => void setDimension(!conditions.nz)}
-            >
-              <Box size={15} /> {conditions.nz ? '3D' : '2D'} solver{' '}
-              <RotateCcw size={12} />
-            </button>
-          )}
           {checkingLayers && view === 'workspace' && (
             <div className="inline">
               <span role="status">Comparing layers…</span>
@@ -644,7 +723,7 @@ export default function Workspace() {
         ) : (
           <div className="workspace-grid">
             <div ref={visualColumn} className="visual-column">
-              {run && run.resolved.nz > 1 && (
+              {run && !failedWithoutFrames && run.resolved.nz > 1 && (
                 <SpatialControls
                   view={spatial}
                   grid={run.resolved}
@@ -655,7 +734,24 @@ export default function Workspace() {
                   }}
                 />
               )}
-              {run && spatial.mode === 'Volume' ? (
+              {failedWithoutFrames ? (
+                <section className="panel viewport" aria-label="Field viewport">
+                  <header className="panel-head">
+                    <h2>
+                      <ScanLine size={17} /> Field viewport
+                    </h2>
+                    <span className="mode-tag">
+                      {nx} × {ny}
+                      {run.resolved.nz > 1 && ` × ${run.resolved.nz}`}
+                    </span>
+                  </header>
+                  <div className="volume-stage">
+                    <div className="plot-message" role="status">
+                      No frames were written
+                    </div>
+                  </div>
+                </section>
+              ) : run && spatial.mode === 'Volume' ? (
                 <VolumePlayer
                   key={run.id}
                   run={run}
@@ -783,10 +879,16 @@ export default function Workspace() {
                     processes
                     {run.queue_position && `· Queue position ${run.queue_position}`}
                   </p>
-                  {run.message && (
+                  {runReason && (
                     <p className="error" role="alert">
-                      {run.message}
+                      <strong>{runReason}</strong>
                     </p>
+                  )}
+                  {engineOutput.some((line) => line.trim()) && (
+                    <details className="engine-output">
+                      <summary>Engine output</summary>
+                      <pre>{engineOutput.join('\n')}</pre>
+                    </details>
                   )}
                   {pollError && (
                     <p className="error">
@@ -796,20 +898,22 @@ export default function Workspace() {
                       </button>
                     </p>
                   )}
-                  <div className="rule" />
-                  {config && (
-                    <Output
-                      key={run.id}
-                      view={run.resolved.nz > 1 ? frameView(spatial) : undefined}
-                      volume={spatial.mode === 'Volume'}
-                      run={run}
-                      n={n}
-                      colors={colors}
-                      change={setColors}
-                      config={config}
-                    />
+                  {config && !failedWithoutFrames && (
+                    <>
+                      <div className="rule" />
+                      <Output
+                        key={run.id}
+                        view={run.resolved.nz > 1 ? frameView(spatial) : undefined}
+                        volume={spatial.mode === 'Volume'}
+                        run={run}
+                        n={n}
+                        colors={colors}
+                        change={setColors}
+                        config={config}
+                      />
+                      <div className="rule" />
+                    </>
                   )}
-                  <div className="rule" />
                   {status === 'running' || status === 'queued' ? (
                     <button className="secondary" disabled={busy} onClick={cancel}>
                       Cancel run
@@ -876,6 +980,7 @@ export default function Workspace() {
                               />
                             ))}
                         </GridFields>
+                        {estimate}
                         <div className="section-label">Field source</div>
                         <div className="source-tabs segmented">
                           <button
@@ -974,6 +1079,7 @@ export default function Workspace() {
                       </>
                     ) : config ? (
                       <ConditionsForm
+                        gridEstimate={estimate}
                         onDimensionChange={setDimension}
                         approximate={
                           mode === 'upload' && variable?.spacing?.approximate
@@ -1018,8 +1124,10 @@ export default function Workspace() {
                       {conditions.units?.time} simulated <span>·</span>{' '}
                       {conditions.frames} requested frames
                     </div>
-                    {ranks !== undefined && (
-                      <p className="hint">Server selected {ranks} MPI processes.</p>
+                    {resolved && (
+                      <p className="hint">
+                        Server selected {resolved.processes} MPI processes.
+                      </p>
                     )}
                     {warnings.map((w) => (
                       <p key={w} className="warning" role="status">
@@ -1043,7 +1151,7 @@ export default function Workspace() {
                       )}
                       {busy
                         ? 'Preparing…'
-                        : warnings.length
+                        : warnings.length && !memoryError
                           ? 'Run with warnings'
                           : 'Run simulation'}
                       <ArrowRight size={16} />
