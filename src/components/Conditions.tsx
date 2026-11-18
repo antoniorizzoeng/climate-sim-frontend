@@ -2,6 +2,8 @@ import { useId, useState } from 'react';
 import { ArrowUp, Wind } from 'lucide-react';
 import {
   dtMax,
+  changeUnits,
+  systems,
   clampTimeStep,
   withLayers,
   numberText,
@@ -85,14 +87,22 @@ export function ConditionsForm({
   change,
   config,
   volumeLayers,
+  onDimensionChange,
+  approximate,
 }: {
   model: Model;
   change: (m: Model) => void;
   config: Config;
   volumeLayers?: number;
+  approximate?: boolean;
+  onDimensionChange?: (three: boolean) => void;
 }) {
   const limit = dtMax(model),
     [clamped, setClamped] = useState(false);
+  const [convert, setConvert] = useState(false);
+  const units = model.units ?? systems.km;
+  const speed = units.length + '/' + units.time;
+  const diffusion = units.length + '²/' + units.time;
   const boundaryHint = useId();
   const supportsWrap = config.supported_boundary_conditions.includes('periodic');
   function update(next: Model) {
@@ -108,18 +118,7 @@ export function ConditionsForm({
   }
   function field(
     key:
-      | 'dz'
-      | 'Dz'
-      | 'vz'
-      | 'D'
-      | 'vx'
-      | 'vy'
-      | 'dt'
-      | 'steps'
-      | 'frames'
-      | 'dx'
-      | 'dy'
-      | 'processes',
+      'dz' | 'Dz' | 'vz' | 'D' | 'vx' | 'vy' | 'dt' | 'steps' | 'frames' | 'dx' | 'dy',
     label: string,
     min?: number,
     integer = false,
@@ -132,25 +131,56 @@ export function ConditionsForm({
         min={min}
         max={max}
         integer={integer}
-        placeholder={
-          key === 'Dz'
-            ? `Use D · ${model.D ?? 0}`
-            : key === 'processes'
-              ? `Auto · ${config.default_processes}`
-              : undefined
-        }
+        placeholder={key === 'Dz' ? `Use D · ${model.D ?? 0}` : undefined}
         update={(v) => update({ ...model, [key]: v })}
       />
     );
   }
   return (
     <div className="control-stack">
+      <label>
+        Unit system
+        <select
+          value={units.length}
+          onChange={(e) =>
+            change(
+              changeUnits(
+                model,
+                systems[e.target.value as keyof typeof systems],
+                convert,
+              ),
+            )
+          }
+        >
+          <option value="km">Kilometres + hours</option>
+          <option value="m">Metres + seconds</option>
+          <option value="cell">Grid units</option>
+        </select>
+      </label>
+      <label className="convert-units">
+        <input
+          type="checkbox"
+          checked={convert && units.length !== 'cell'}
+          disabled={units.length === 'cell'}
+          onChange={(e) => setConvert(e.target.checked)}
+        />
+        Convert values between physical units
+      </label>
+      {units.length === 'cell' && (
+        <p className="hint">
+          Grid units have no physical scale. Switching keeps the numeric values.
+        </p>
+      )}
       <div className="segmented" role="group" aria-label="Simulation dimensions">
         {[false, true].map((three) => (
           <button
             key={String(three)}
             aria-pressed={!!model.nz === three}
-            onClick={() => update(withLayers(model, three ? (model.nz ?? 16) : 1))}
+            onClick={() =>
+              onDimensionChange
+                ? onDimensionChange(three)
+                : update(withLayers(model, three ? (model.nz ?? 16) : 1))
+            }
           >
             {three ? '3D' : '2D'}
           </button>
@@ -172,27 +202,29 @@ export function ConditionsForm({
               update={(v) => update(withLayers(model, v!))}
             />
           )}
-          {field('dz', 'Grid spacing dz', Number.MIN_VALUE)}
-          {field('Dz', 'Vertical diffusion Dz', 0)}
-          {field('vz', 'Velocity vz')}
+          {field('dz', `Grid spacing dz (${units.length})`, Number.MIN_VALUE)}
+          {field('Dz', `Vertical diffusion Dz (${diffusion})`, 0)}
+          {field('vz', `Velocity vz (${speed})`)}
         </div>
       )}
       <div className="input-grid">
-        {field('D', 'Diffusion D', 0)}
-        {field('dt', 'Time step dt', Number.MIN_VALUE)}
+        {field('D', `Diffusion D (${diffusion})`, 0)}
+        {field('dt', `Time step dt (${units.time})`, Number.MIN_VALUE)}
       </div>
       <p className="hint" role="status">
         {clamped ? 'Clamped to stability limit. ' : ''}dt_max ={' '}
-        {limit === null ? 'unbounded' : numberText(limit)}
+        {limit === null ? 'unbounded' : `${numberText(limit)} ${units.time}`}
       </p>
       <div className="input-grid">
-        {field('vx', 'Velocity vx')}
-        {field('vy', 'Velocity vy')}
+        {field('vx', `Velocity vx (${speed})`)}
+        {field('vy', `Velocity vy (${speed})`)}
       </div>
       <div className="wind">
         <Wind size={16} />
         <span>Flow velocity</span>
-        <b>{numberText(Math.hypot(model.vx ?? 0, model.vy ?? 0, model.vz ?? 0))}</b>
+        <b>
+          {numberText(Math.hypot(model.vx ?? 0, model.vy ?? 0, model.vz ?? 0))} {speed}
+        </b>
         <ArrowUp
           aria-label="Flow direction"
           size={20}
@@ -202,10 +234,11 @@ export function ConditionsForm({
         />
         {model.nz && (
           <label className="vertical-flow">
-            Vertical flow
+            Vertical flow ({speed})
             <input
               type="range"
               aria-label="Vertical flow"
+              aria-valuetext={`${numberText(model.vz ?? 0)} ${speed}`}
               min={-Math.max(2, Math.abs(model.vz ?? 0))}
               max={Math.max(2, Math.abs(model.vz ?? 0))}
               step={0.05}
@@ -248,12 +281,17 @@ export function ConditionsForm({
           </p>
         )}
       </div>
+      {approximate && (
+        <p className="hint">Uploaded coordinate spacing is approximate.</p>
+      )}
       <details>
-        <summary>Advanced conditions</summary>
+        <summary>
+          <span>Advanced conditions</span>
+          <small>Grid spacing</small>
+        </summary>
         <div className="input-grid">
-          {field('dx', 'Grid spacing dx', Number.MIN_VALUE)}
-          {field('dy', 'Grid spacing dy', Number.MIN_VALUE)}
-          {field('processes', 'MPI processes', 1, true, config.cpu_count)}
+          {field('dx', `Grid spacing dx (${units.length})`, Number.MIN_VALUE)}
+          {field('dy', `Grid spacing dy (${units.length})`, Number.MIN_VALUE)}
         </div>
       </details>
     </div>

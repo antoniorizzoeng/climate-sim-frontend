@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, checked, decodeGrid, message, type Colors } from '@/lib/api';
 import {
   cellAt,
+  frameTime,
   numberText,
   pixels,
   type FrameView,
@@ -297,7 +298,7 @@ export function Player({
       ny={height}
       map={colors.colormap}
       range={range}
-      mode="Run output"
+      mode={visible ? frameTime(run, visible.index) : 'Run output'}
       readout={readout || `${horizontal}, ${vertical} · cell coordinates`}
       controls={
         <div className="frame-options">
@@ -323,11 +324,18 @@ export function Player({
           waiting
         ))
       }
+      referenceTime={frameTime(run, 0)}
       currentLabel={
-        visible ? 'Current · frame ' + (visible.index + 1) : 'Current frame'
+        visible
+          ? 'Current · frame ' +
+            (visible.index + 1) +
+            ' · ' +
+            frameTime(run, visible.index)
+          : 'Current frame'
       }
       chart={
         <MeanChart
+          run={run}
           fieldLabel={projection ? 'Projection' : axis ? 'Slice' : 'Field'}
           means={samples}
           current={visible}

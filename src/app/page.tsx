@@ -2,7 +2,7 @@
 import dynamic from 'next/dynamic';
 import { initialView, frameView, SpatialControls } from '@/components/SpatialControls';
 import Image from 'next/image';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   ArrowRight,
@@ -25,6 +25,9 @@ import {
 } from 'lucide-react';
 import { api, baseUrl, checked, message, saveDrawing, type Colors } from '@/lib/api';
 import {
+  applySpacing,
+  resizePlane,
+  numberText,
   colorTable,
   defaults,
   makePlane,
@@ -38,7 +41,12 @@ import {
   cleanRange,
   withLayers,
 } from '@/lib/model';
-import { DrawingCanvas, DrawingControls, defaultBrush } from '@/components/Drawing';
+import {
+  DrawingCanvas,
+  DrawingControls,
+  GridFields,
+  defaultBrush,
+} from '@/components/Drawing';
 import { ConditionsForm, NumberField } from '@/components/Conditions';
 import { Viewport } from '@/components/Viewport';
 import { Timeline } from '@/components/Timeline';
@@ -48,7 +56,13 @@ import { Examples } from '@/components/Examples';
 import { examplePlane, exampleConditions, examples } from '@/lib/examples';
 import { Output } from '@/components/Output';
 import { Sky } from '@/components/sky/Sky';
+import { sameLayers, sourceLayer, gaussianSlice } from '@/lib/initialVolume';
+import { SliceChoice } from '@/components/SliceChoice';
 import { History } from '@/components/History';
+
+const InitialVolume = dynamic(() => import('@/components/InitialVolume'), {
+  ssr: false,
+});
 
 // matchMedia is missing in some embedded browsers and in jsdom; treat that as no match.
 function mediaMatches(query: string) {
@@ -63,10 +77,7 @@ const VolumePlayer = dynamic(() => import('@/components/VolumePlayer'), {
     </div>
   ),
 });
-async function connect() {
-  await window.startClimateMock?.();
-  return checked(await api.GET('/config'));
-}
+
 const mockMode = process.env.NEXT_PUBLIC_MOCK_API === '1';
 const emptyColors: Colors = { colormap: 'inferno' };
 export default function Workspace() {
@@ -100,14 +111,42 @@ export default function Workspace() {
     [pollAttempt, retryPoll] = useState(0);
   const inspectedRunId = useRef<string | null>(null);
   const visualColumn = useRef<HTMLDivElement>(null);
+  const [version, setVersion] = useState('');
+  const [volumePreview, setVolumePreview] = useState(false);
+  const [chooseSlice, setChooseSlice] = useState(false);
+  const [runName, setRunName] = useState('');
+  const [ranks, setRanks] = useState<number>();
+  const [checkingLayers, setCheckingLayers] = useState(false);
+  const comparison = useRef<AbortController | null>(null);
+  useEffect(() => () => comparison.current?.abort(), [view, selection, mode]);
   const [spatial, setSpatial] = useState(initialView(1));
   const [preset, setPreset] = useState<'gaussian_hotspot'>();
+  const drawing = useMemo(
+    () =>
+      preset && conditions.nz
+        ? gaussianSlice(plane.nx, plane.ny, conditions, Math.floor(conditions.nz / 2))
+        : plane,
+    [preset, conditions, plane],
+  );
   const [pollError, setPollError] = useState('');
   const [presented, setPresented] = useState(-1),
     [autoplay, setAutoplay] = useState(false);
   useEffect(() => {
     let active = true;
-    connect()
+    Promise.resolve()
+      .then(async () => {
+        await window.startClimateMock?.();
+        void api
+          .GET('/health')
+          .then(checked)
+          .then((h) => {
+            if (active) setVersion(h.api_version);
+          })
+          .catch(() => {
+            if (active) setVersion('');
+          });
+        return checked(await api.GET('/config'));
+      })
       .then((c) => {
         if (!active) return;
         if (
@@ -169,10 +208,22 @@ export default function Workspace() {
   function clearReview() {
     setError('');
     setWarnings([]);
+    setRanks(undefined);
     reviewed.current = '';
   }
   function select(s: PlaneSelection) {
-    if (selection?.volume && !s.volume) setConditions((m) => withLayers(m, 1));
+    const v = s.field.variables.find((v) => v.name === s.variable);
+    const newVariable =
+      selection?.field.id !== s.field.id ||
+      selection.variable !== s.variable ||
+      mode !== 'upload';
+    setConditions((m) => {
+      const next =
+        s.volume && v ? withLayers(m, v.nz) : selection?.volume ? withLayers(m, 1) : m;
+      if (newVariable) return applySpacing(next, v?.spacing);
+      if (s.volume && !selection?.volume) return applySpacing(next, v?.spacing, true);
+      return next;
+    });
     setSelection(s);
     setFill(null);
     clearReview();
@@ -260,10 +311,15 @@ export default function Workspace() {
             : {}),
         };
       }
-      const body = { ...solver, source },
+      const body = {
+          ...solver,
+          ...(runName.trim() && { name: runName.trim() }),
+          source,
+        },
         signature = JSON.stringify(body);
       const validation = checked(await api.POST('/runs/validate', { body }));
       setWarnings(validation.warnings);
+      setRanks(validation.resolved?.processes);
       if (!validation.ok)
         throw new Error(
           validation.errors.map((i) => i.loc.join('.') + ' — ' + i.msg).join('\n') ||
@@ -302,6 +358,81 @@ export default function Workspace() {
       (v) => v.name === selection.variable,
     ),
     inUpload = mode === 'upload' && !run;
+  function keepSlice(z: number) {
+    if (inUpload && selection?.volume && variable?.z_dim) {
+      select({
+        ...selection,
+        volume: false,
+        index: { ...selection.index, [variable.z_dim]: sourceLayer(variable, z) },
+      });
+      setFill(fillOverride ?? fill);
+    } else if (mode === 'draw' && preset) {
+      edit(gaussianSlice(plane.nx, plane.ny, conditions, z));
+    }
+    setConditions(withLayers(conditions, 1));
+    setChooseSlice(false);
+    clearReview();
+  }
+  async function setDimension(three: boolean) {
+    if (busy || !!conditions.nz === three) return;
+    if (three) {
+      setConditions(
+        applySpacing(
+          withLayers(conditions, 16),
+          inUpload ? variable?.spacing : undefined,
+          true,
+        ),
+      );
+      clearReview();
+      return;
+    }
+    if (inUpload && selection?.volume && variable) {
+      if (selection.field.state === 'archived') {
+        setChooseSlice(true);
+        return;
+      }
+      const ctrl = new AbortController();
+      comparison.current = ctrl;
+      setCheckingLayers(true);
+      setBusy(true);
+      try {
+        const same = await sameLayers(selection, variable, ctrl.signal);
+        if (!ctrl.signal.aborted) {
+          if (same) keepSlice(0);
+          else setChooseSlice(true);
+        }
+      } catch (e) {
+        if (!ctrl.signal.aborted) setError(message(e));
+      } finally {
+        comparison.current = null;
+        setCheckingLayers(false);
+        setBusy(false);
+      }
+    } else if (mode === 'draw' && preset && (conditions.nz ?? 1) > 2)
+      setChooseSlice(true);
+    else keepSlice(0);
+  }
+  const previewControls = (
+    <div
+      className="segmented preview-switch"
+      role="group"
+      aria-label="Initial field preview"
+    >
+      {[false, true].map((three) => (
+        <button
+          key={String(three)}
+          aria-label={three ? '3D preview' : '2D preview'}
+          aria-pressed={volumePreview === three}
+          onClick={() => {
+            setVolumePreview(three);
+            setReadout('');
+          }}
+        >
+          {three ? '3D' : '2D'}
+        </button>
+      ))}
+    </div>
+  );
   const nx = run?.resolved.nx ?? (inUpload ? (variable?.nx ?? 224) : plane.nx),
     ny = run?.resolved.ny ?? (inUpload ? (variable?.ny ?? 128) : plane.ny);
   const range = run
@@ -373,7 +504,7 @@ export default function Workspace() {
           </div>
         </div>
       </header>
-      <main className="shell" id="workspace">
+      <main className="shell" id="workspace" data-view={view}>
         <div className="page-heading">
           <div>
             <div className="eyebrow">
@@ -395,13 +526,32 @@ export default function Workspace() {
                   : 'Create an initial field, configure the solver, and explore its evolution.'}
             </p>
           </div>
-          <span className="solver-tag">
-            <Box size={15} />
-            {(run ? run.resolved.nz > 1 : !!conditions.nz) && view === 'workspace'
-              ? '3D'
-              : '2D'}{' '}
-            solver
-          </span>
+          {view === 'workspace' && !run && (
+            <button
+              className="solver-tag"
+              aria-label={`Switch to ${conditions.nz ? '2D' : '3D'} solver`}
+              disabled={busy}
+              onClick={() => void setDimension(!conditions.nz)}
+            >
+              <Box size={15} /> {conditions.nz ? '3D' : '2D'} solver{' '}
+              <RotateCcw size={12} />
+            </button>
+          )}
+          {checkingLayers && view === 'workspace' && (
+            <div className="inline">
+              <span role="status">Comparing layers…</span>
+              <button className="secondary" onClick={() => comparison.current?.abort()}>
+                Cancel
+              </button>
+            </div>
+          )}
+          {chooseSlice && view === 'workspace' && (
+            <SliceChoice
+              layers={conditions.nz ?? 1}
+              keep={keepSlice}
+              cancel={() => setChooseSlice(false)}
+            />
+          )}
         </div>
         {connError && (
           <div className="notice error" role="alert">
@@ -494,6 +644,17 @@ export default function Workspace() {
                   range={range}
                   onPresent={setPresented}
                 />
+              ) : volumePreview ? (
+                <InitialVolume
+                  plane={inUpload ? undefined : plane}
+                  selection={inUpload ? selection : null}
+                  model={conditions}
+                  gaussian={!inUpload && !!preset}
+                  map={inUpload ? previewMap : 'inferno'}
+                  range={range}
+                  fill={fill === '' ? undefined : Number(fill)}
+                  controls={previewControls}
+                />
               ) : (
                 <Viewport
                   nx={nx}
@@ -501,11 +662,12 @@ export default function Workspace() {
                   map={inUpload ? previewMap : 'inferno'}
                   range={range}
                   mode="Initial field"
+                  headerControls={previewControls}
                   readout={readout}
                 >
                   {mode === 'draw' ? (
                     <DrawingCanvas
-                      plane={plane}
+                      plane={drawing}
                       brush={brush}
                       change={edit}
                       onRead={setReadout}
@@ -538,6 +700,7 @@ export default function Workspace() {
                 </Viewport>
               )}
               <Timeline
+                units={conditions.units}
                 key={'timeline-' + (runId ?? 'setup')}
                 run={run}
                 n={n}
@@ -570,6 +733,7 @@ export default function Workspace() {
               </header>
               {run ? (
                 <div className="inspector-body">
+                  <strong className="run-name">{run.name}</strong>
                   <div className="spread">
                     <strong className="capitalize">{run.status}</strong>
                     <span className="mono">
@@ -583,7 +747,8 @@ export default function Workspace() {
                   />
                   <p className="hint">
                     Step {run.step} / {run.resolved.steps} · {run.frames} /{' '}
-                    {run.resolved.expected_frames} frames{' '}
+                    {run.resolved.expected_frames} frames · {run.resolved.processes} MPI
+                    processes
                     {run.queue_position && `· Queue position ${run.queue_position}`}
                   </p>
                   {run.message && (
@@ -652,6 +817,33 @@ export default function Workspace() {
                   <fieldset className="inspector-body" disabled={busy}>
                     {tab === 'field' ? (
                       <>
+                        <GridFields
+                          plane={inUpload ? variable : plane}
+                          change={
+                            inUpload
+                              ? undefined
+                              : (x, y) => edit(resizePlane(drawing, x, y))
+                          }
+                        >
+                          {conditions.nz &&
+                            ((inUpload && selection?.volume) || preset ? (
+                              <label>
+                                Layers
+                                <input type="number" readOnly value={conditions.nz} />
+                              </label>
+                            ) : (
+                              <NumberField
+                                label="Extrude to N layers"
+                                value={conditions.nz}
+                                min={2}
+                                integer
+                                update={(nz) => {
+                                  setConditions(withLayers(conditions, nz!));
+                                  clearReview();
+                                }}
+                              />
+                            ))}
+                        </GridFields>
                         <div className="section-label">Field source</div>
                         <div className="source-tabs segmented">
                           <button
@@ -669,8 +861,15 @@ export default function Workspace() {
                             disabled={!config}
                             aria-pressed={mode === 'upload'}
                             onClick={() => {
-                              if (selection?.volume && variable)
-                                setConditions(withLayers(conditions, variable.nz));
+                              if (mode !== 'upload')
+                                setConditions((m) =>
+                                  applySpacing(
+                                    selection?.volume && variable
+                                      ? withLayers(m, variable.nz)
+                                      : m,
+                                    variable?.spacing,
+                                  ),
+                                );
                               setMode('upload');
                               setReadout('');
                               clearReview();
@@ -690,38 +889,26 @@ export default function Workspace() {
                               </p>
                             )}
                             <DrawingControls
-                              plane={plane}
+                              plane={drawing}
                               change={edit}
                               brush={brush}
                               setBrush={setBrush}
                               pattern={pattern}
                               setPattern={setPattern}
                             />
-                            {!preset && (
-                              <NumberField
-                                label="Extrude to N layers"
-                                value={conditions.nz ?? 1}
-                                min={1}
-                                integer
-                                update={(nz) => {
-                                  if (isExample) setPattern('Custom');
-                                  setConditions(withLayers(conditions, nz!));
-                                  clearReview();
-                                }}
-                              />
-                            )}
                           </>
                         ) : (
                           <UploadControls
                             volume={!!(conditions.nz && selection?.volume)}
                             onVolumeChange={(active) => {
                               if (!selection || !variable) return;
+                              if (!active) {
+                                void setDimension(false);
+                                return;
+                              }
                               const index = { ...selection.index };
                               if (variable.z_dim) delete index[variable.z_dim];
                               select({ ...selection, index, volume: active });
-                              setConditions(
-                                withLayers(conditions, active ? variable.nz : 1),
-                              );
                             }}
                             selection={selection}
                             select={select}
@@ -755,6 +942,10 @@ export default function Workspace() {
                       </>
                     ) : config ? (
                       <ConditionsForm
+                        onDimensionChange={setDimension}
+                        approximate={
+                          mode === 'upload' && variable?.spacing?.approximate
+                        }
                         volumeLayers={
                           mode === 'upload' && selection?.volume
                             ? variable?.nz
@@ -763,8 +954,7 @@ export default function Workspace() {
                         model={conditions}
                         change={(m) => {
                           setConditions(m);
-                          if (!m.nz && selection?.volume)
-                            select({ ...selection, volume: false });
+
                           if (isExample) setPattern('Custom');
                           clearReview();
                         }}
@@ -775,11 +965,30 @@ export default function Workspace() {
                     )}
                   </fieldset>
                   <div className="launch">
+                    <label className="run-name-input">
+                      Run name (optional)
+                      <input
+                        type="text"
+                        maxLength={120}
+                        value={runName}
+                        disabled={busy}
+                        placeholder="Server default"
+                        onChange={(e) => {
+                          setRunName(e.target.value);
+                          clearReview();
+                        }}
+                      />
+                    </label>
                     <div className="launch-meta">
                       <CircleDot size={13} />
-                      {conditions.steps} steps <span>·</span> {conditions.frames}{' '}
-                      requested frames
+                      {conditions.steps} steps ·{' '}
+                      {numberText(conditions.steps * conditions.dt)}{' '}
+                      {conditions.units?.time} simulated <span>·</span>{' '}
+                      {conditions.frames} requested frames
                     </div>
+                    {ranks !== undefined && (
+                      <p className="hint">Server selected {ranks} MPI processes.</p>
+                    )}
                     {warnings.map((w) => (
                       <p key={w} className="warning" role="status">
                         {w}
@@ -823,10 +1032,12 @@ export default function Workspace() {
             <Waves size={15} />
             ClimateSim <ChevronRight size={12} /> Simulation lab
           </span>
-          <span>
-            <BookOpen size={13} />
-            API v1.3.0
-          </span>
+          {version && (
+            <span>
+              <BookOpen size={13} />
+              API v{version}
+            </span>
+          )}
         </footer>
       </main>
     </>

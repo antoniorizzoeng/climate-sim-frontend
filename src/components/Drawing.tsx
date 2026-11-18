@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Paintbrush, Eraser, Trash2, Waves, Blend, ScatterChart } from 'lucide-react';
 import {
   cellAt,
   numberText,
   makePlane,
-  resizePlane,
   pixels,
   type Plane,
   type Pattern,
@@ -159,7 +158,6 @@ export function DrawingControls({
   pattern: string;
   setPattern: (p: string) => void;
 }) {
-  const [custom, setCustom] = useState(false);
   function preset(p: Pattern, nx = plane.nx, ny = plane.ny) {
     change(makePlane(nx, ny, p, brush.min, brush.max));
     setPattern(p);
@@ -232,56 +230,76 @@ export function DrawingControls({
           onChange={(e) => setBrush({ ...brush, strength: +e.target.value })}
         />
       </label>
-      <details open={custom} onToggle={(e) => setCustom(e.currentTarget.open)}>
-        <summary>Grid &amp; value range</summary>
-        <div className="input-grid">
-          {(['nx', 'ny'] as const).map((key) => (
-            <label key={key}>
-              {key === 'nx' ? 'Columns' : 'Rows'}
-              <input
-                key={plane[key]}
-                type="number"
-                min="4"
-                max="1024"
-                defaultValue={plane[key]}
-                onBlur={(e) => {
-                  if (!e.target.validity.valid || !e.target.value) {
-                    e.target.value = String(plane[key]);
-                    return;
-                  }
-                  if (+e.target.value !== plane[key]) {
-                    const nx = key === 'nx' ? +e.target.value : plane.nx,
-                      ny = key === 'ny' ? +e.target.value : plane.ny;
-                    change(resizePlane(plane, nx, ny));
-                  }
-                }}
-              />
-            </label>
-          ))}
-          {(['min', 'max'] as const).map((key) => (
-            <label key={key}>
-              Value {key}
-              <input
-                type="number"
-                step="any"
-                defaultValue={numberText(brush[key])}
-                key={brush[key]}
-                onBlur={(e) => {
-                  if (e.target.value === numberText(brush[key])) return;
-                  const v = e.target.valueAsNumber;
-                  const b = { ...brush, [key]: v };
-                  if (Number.isFinite(Math.fround(v)) && b.max > b.min)
-                    setBrush({
-                      ...b,
-                      strength: Math.max(b.min, Math.min(b.max, b.strength)),
-                    });
-                  else e.target.value = numberText(brush[key]);
-                }}
-              />
-            </label>
-          ))}
-        </div>
-      </details>
+
+      <div className="input-grid">
+        {(['min', 'max'] as const).map((key) => (
+          <label key={key}>
+            Value {key}
+            <input
+              type="number"
+              step="any"
+              defaultValue={numberText(brush[key])}
+              key={brush[key]}
+              onBlur={(e) => {
+                if (e.target.value === numberText(brush[key])) return;
+                const v = e.target.valueAsNumber;
+                const b = { ...brush, [key]: v };
+                if (Number.isFinite(Math.fround(v)) && b.max > b.min)
+                  setBrush({
+                    ...b,
+                    strength: Math.max(b.min, Math.min(b.max, b.strength)),
+                  });
+                else e.target.value = numberText(brush[key]);
+              }}
+            />
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function GridFields({
+  plane,
+  change,
+  children,
+}: {
+  plane?: Pick<Plane, 'nx' | 'ny'>;
+  change?: (nx: number, ny: number) => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="field-grid">
+      <div className="section-label">Grid size</div>
+      <div className="input-grid">
+        {' '}
+        {(['nx', 'ny'] as const).map((key) => (
+          <label key={key}>
+            {key === 'nx' ? 'Columns' : 'Rows'}
+            <input
+              readOnly={!change}
+              key={plane?.[key]}
+              type="number"
+              min="4"
+              max="1024"
+              defaultValue={plane?.[key] ?? ''}
+              onBlur={(e) => {
+                if (!plane || !change) return;
+                if (!e.target.validity.valid || !e.target.value) {
+                  e.target.value = String(plane[key]);
+                  return;
+                }
+                if (+e.target.value !== plane[key]) {
+                  const nx = key === 'nx' ? +e.target.value : plane.nx,
+                    ny = key === 'ny' ? +e.target.value : plane.ny;
+                  change(nx, ny);
+                }
+              }}
+            />
+          </label>
+        ))}
+        {children}
+      </div>
     </div>
   );
 }

@@ -13,7 +13,7 @@ async function setRunLength(page: Page, steps: number, frames: number) {
   await page.getByLabel('Steps', { exact: true }).fill(String(steps));
   await page.getByLabel('Frames to keep').fill(String(frames));
   await page.getByText('Advanced conditions', { exact: true }).click();
-  await page.getByLabel('MPI processes').fill('1');
+  await expect(page.getByLabel('MPI processes')).toHaveCount(0);
 }
 
 async function startRun(page: Page) {

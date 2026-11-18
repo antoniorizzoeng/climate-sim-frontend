@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Box } from 'lucide-react';
 import { loadVolume, message, type Colors } from '@/lib/api';
-import { gradient, numberText, type Run, type Volume } from '@/lib/model';
+import { frameTime, gradient, numberText, type Run, type Volume } from '@/lib/model';
 import { createVolumeScene } from '@/lib/volumeScene';
 
 type Entry = { controller: AbortController; task: Promise<Volume> };
@@ -163,7 +163,11 @@ export default function VolumePlayer({
       {!failure && (
         <footer className="viewport-foot">
           <span>Drag to orbit · Scroll or pinch to zoom</span>
-          {shown !== undefined && <span>Volume frame {shown + 1}</span>}
+          {shown !== undefined && (
+            <span>
+              <span>Volume frame {shown + 1}</span> · {frameTime(run, shown)}
+            </span>
+          )}
         </footer>
       )}
     </section>

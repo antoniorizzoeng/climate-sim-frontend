@@ -225,7 +225,9 @@ export function validate(body: RequestBody): S['RunValidation'] {
     while (r % a !== 0) a--;
     return (a <= nx && r / a <= ny) || (a <= ny && r / a <= nx);
   };
-  let processes = body.processes ?? config.default_processes;
+  let processes =
+    body.processes ??
+    Math.min(config.cpu_count, Math.max(1, Math.floor((nx * ny * nz) / 4096)));
   if (body.processes === undefined) {
     while (processes > 1 && !fits(processes)) processes--;
   } else if (

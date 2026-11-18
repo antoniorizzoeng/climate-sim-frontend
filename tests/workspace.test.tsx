@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
@@ -17,6 +17,7 @@ const running = {
 };
 const done = simulation({ frames: 1 });
 const server = setupServer(
+  http.get(baseUrl + '/health', () => HttpResponse.json({ api_version: '1.4.7' })),
   http.get(baseUrl + '/storage', () => HttpResponse.json(storage)),
   http.get(baseUrl + '/config', () => HttpResponse.json(config)),
   http.post(baseUrl + '/fields/drawn', () => HttpResponse.json(field)),
@@ -45,6 +46,7 @@ beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
 });
 afterEach(() => {
+  cleanup();
   server.resetHandlers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -273,6 +275,7 @@ it('reconnects and validates a drawing before starting, reusing an unchanged sav
   expect(screen.getByRole('button', { name: 'Run simulation' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
   await screen.findByText('Engine online');
+  fireEvent.click(screen.getByRole('button', { name: 'Switch to 3D solver' }));
   fireEvent.change(screen.getByLabelText('Extrude to N layers'), {
     target: { value: '4' },
   });
@@ -397,4 +400,69 @@ it('uses retained default statistics to launch an archived field without request
       source: { kind: 'field', field_id: field.id, var: 'u', index: {}, fill_value: 3 },
     }),
   );
+});
+
+it('reads health independently and sends the same named request with units and automatic ranks to both endpoints', async () => {
+  const bodies: RequestBody[] = [];
+  server.use(
+    http.post(baseUrl + '/runs/validate', async ({ request }) => {
+      bodies.push((await request.json()) as RequestBody);
+      return HttpResponse.json({
+        ok: true,
+        warnings: ['Review size'],
+        errors: [],
+        resolved: { ...done.resolved, processes: 3 },
+      });
+    }),
+    http.post(baseUrl + '/runs', async ({ request }) => {
+      bodies.push((await request.json()) as RequestBody);
+      return HttpResponse.json({
+        ...done,
+        name: 'Morning wind',
+        resolved: { ...done.resolved, processes: 3 },
+      });
+    }),
+  );
+  render(<Workspace />);
+  await screen.findByText('API v1.4.7');
+  expect(screen.getByLabelText('Columns')).toBeVisible();
+  expect(screen.getByLabelText('Rows')).toBeVisible();
+  expect(screen.queryByLabelText('Extrude to N layers')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Switch to 3D solver' }));
+  expect(screen.getByLabelText('Extrude to N layers')).toHaveValue(16);
+  fireEvent.click(screen.getByRole('button', { name: 'Switch to 2D solver' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.queryByLabelText('Extrude to N layers')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Conditions' }));
+  fireEvent.change(screen.getByLabelText('Unit system'), { target: { value: 'm' } });
+  expect(screen.getByText(/200 s simulated/)).toBeVisible();
+  expect(screen.queryByLabelText(/MPI processes/)).toBeNull();
+  fireEvent.change(screen.getByLabelText('Run name (optional)'), {
+    target: { value: '  Morning wind  ' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+  await screen.findByText('Server selected 3 MPI processes.');
+  fireEvent.click(screen.getByRole('button', { name: 'Run with warnings' }));
+  await screen.findByRole('heading', { name: 'Run inspector' });
+  expect(screen.getByText('Morning wind')).toBeVisible();
+  expect(screen.getByText(/· 3 MPI processes/)).toBeVisible();
+  expect(bodies).toHaveLength(3);
+  for (const body of bodies) {
+    expect(body).toEqual(bodies[0]);
+    expect(body).toMatchObject({
+      name: 'Morning wind',
+      units: { length: 'm', time: 's' },
+    });
+    expect(body).not.toHaveProperty('processes');
+  }
+});
+
+it('hides an unavailable API version while configuration stays usable', async () => {
+  server.use(
+    http.get(baseUrl + '/health', () => new HttpResponse(null, { status: 503 })),
+  );
+  render(<Workspace />);
+  await screen.findByText('Engine online');
+  expect(screen.queryByText(/API v/)).toBeNull();
+  expect(screen.getByRole('button', { name: 'Run simulation' })).toBeEnabled();
 });

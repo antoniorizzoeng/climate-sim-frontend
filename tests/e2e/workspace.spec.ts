@@ -276,3 +276,101 @@ test('uses all uploaded levels, preserves time and sends a finite volume fill', 
   expect(source).not.toHaveProperty('replicate_z');
   await expect(page.getByLabel('Slice index')).toHaveAttribute('max', '1');
 });
+
+test('converts uploaded layers to one selected plane and keeps its coordinate indices', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Upload file' }).click();
+  await page.getByLabel('Upload NetCDF file').setInputFiles({
+    name: 'levels.nc',
+    mimeType: 'application/x-netcdf',
+    buffer: Buffer.from('mock levels'),
+  });
+  await page.getByLabel('time index').selectOption('2');
+  await page.getByRole('button', { name: /Use as volume/ }).click();
+  await page.getByRole('button', { name: '3D preview', exact: true }).click();
+  await expect(page.getByRole('img', { name: 'Simulation volume' })).toBeVisible();
+  await page.getByRole('button', { name: 'Switch to 2D solver' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Keep one slice in 2D' });
+  await expect(dialog).toBeVisible();
+  for (const value of ['top', 'middle', 'bottom', 'custom'])
+    await dialog.getByLabel('Slice to keep').selectOption(value);
+  await dialog.getByLabel('Layer z').fill('0');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('button', { name: 'Switch to 2D solver' })).toBeVisible();
+  await page.getByRole('button', { name: 'Switch to 2D solver' }).click();
+  await dialog.getByLabel('Slice to keep').selectOption('bottom');
+  await dialog.getByRole('button', { name: 'Keep slice' }).click();
+  await expect(page.getByLabel('level index')).toHaveValue('1');
+  await expect(page.getByLabel('time index')).toHaveValue('2');
+  await page.getByRole('button', { name: 'Conditions', exact: true }).click();
+  await expect(
+    page.getByText('Uploaded coordinate spacing is approximate.'),
+  ).toBeVisible();
+  await page.getByText('Advanced conditions').click();
+  await expect(page.getByLabel('Grid spacing dx (km)')).toHaveValue('1.5');
+  await expect(page.getByLabel('Grid spacing dy (km)')).toHaveValue('2');
+  await page.getByLabel('Frames to keep').fill('3');
+  const payload = page.waitForRequest(
+    (r) => r.method() === 'POST' && r.url().endsWith('/runs'),
+  );
+  await page.getByRole('button', { name: 'Run simulation' }).click();
+  const body = (await payload).postDataJSON();
+  expect(body).toMatchObject({
+    units: { length: 'km', time: 'h' },
+    source: { index: { level: 1, time: 2 } },
+  });
+  for (const k of ['name', 'processes']) expect(body).not.toHaveProperty(k);
+  for (const k of ['volume', 'replicate_z']) expect(body.source).not.toHaveProperty(k);
+});
+
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`initial field and shared sections at ${width}px in ${theme} mode`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      await page.goto('/');
+      await expect(page.getByText('API v1.4.0')).toBeVisible();
+      await page.getByRole('button', { name: /Smoke ring diffusion/ }).click();
+      const columns = await page.getByLabel('Columns').boundingBox();
+      const source = await page
+        .getByText('Field source', { exact: true })
+        .boundingBox();
+      expect(columns!.y + columns!.height).toBeLessThan(source!.y);
+      await expect(page.getByLabel('Value max')).toBeVisible();
+      await page.getByRole('button', { name: '3D preview', exact: true }).click();
+      await expect(page.getByLabel('Simulation volume')).toBeVisible();
+      await expect(page.getByLabel('Draw initial field')).toHaveCount(0);
+      await expect(page.getByLabel('Extrude to N layers')).toHaveValue('12');
+      const summary = page.getByText('What am I looking at?', { exact: true });
+      const chevron = () =>
+        summary.evaluate((el) => getComputedStyle(el, '::before').transform);
+      const closed = await chevron();
+      await summary.click();
+      await expect.poll(chevron).not.toEqual(closed);
+      await expect(page.getByText(/Color shows the amount of tracer/)).toBeVisible();
+      await page.getByRole('button', { name: 'Switch to 2D solver' }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await page.getByRole('button', { name: 'Switch to 3D solver' }).click();
+      await page.getByLabel('Extrude to N layers').fill('12');
+      await page.evaluate(() => window.scrollTo(0, 0));
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+      ).toBe(0);
+      await expect(page.locator('html')).toHaveCSS('color-scheme', theme);
+      await mkdir('artifacts', { recursive: true });
+      await page.screenshot({
+        path: `artifacts/workspace-${width}-${theme}.png`,
+        fullPage: true,
+      });
+      for (const name of ['History', 'Sky']) {
+        await page.getByRole('button', { name, exact: true }).click();
+        await expect(
+          page.getByRole('button', { name: /Switch to .* solver/ }),
+        ).toHaveCount(0);
+      }
+    });
+  }

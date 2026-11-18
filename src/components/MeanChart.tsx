@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { numberText } from '@/lib/model';
+import { numberText, frameTime, type Run } from '@/lib/model';
 export type MeanSample = { index: number; mean: number };
 // One representative per horizontal chart pixel bounds memory on long runs.
 export const chartInterval = (count: number) => Math.max(1, Math.ceil(count / 156));
@@ -10,12 +10,14 @@ export const MeanChart = memo(function MeanChart({
   stride,
   last,
   fieldLabel = 'Field',
+  run,
 }: {
   means: Map<number, MeanSample>;
   current?: MeanSample;
   stride: number;
   last: number;
   fieldLabel?: string;
+  run?: Run;
 }) {
   const samples = Array.from(means.values()).sort((a, b) => a.index - b.index);
   const currentMean =
@@ -27,7 +29,12 @@ export const MeanChart = memo(function MeanChart({
     hi = Math.max(mean, hi);
   }
   const extent = Math.max(hi - lo, Math.max(1, Math.abs(lo)) * 1e-7);
-  const x = (i: number) => 2 + (156 * i) / Math.max(1, last);
+  const x = (i: number) =>
+    2 +
+    156 *
+      (run
+        ? Math.min(i * run.resolved.out_every, run.resolved.steps) / run.resolved.steps
+        : i / Math.max(1, last));
   const y = (m: number) => 16 - (26 * (m - (lo + hi) / 2)) / extent;
   const path = samples
     .map(({ index, mean }, j) => {
@@ -50,22 +57,30 @@ export const MeanChart = memo(function MeanChart({
         {title}
         <strong>{currentMean !== undefined ? numberText(currentMean) : '—'}</strong>
       </span>
-      <svg
-        viewBox="0 0 160 32"
-        role="img"
-        aria-label={title + ' over time for ' + samples.length + ' loaded frames'}
-      >
-        <path d="M2 16H158" stroke="var(--line)" />
-        <path d={path} fill="none" stroke="currentColor" strokeWidth="1.6" />
-        {current && currentMean !== undefined && (
-          <circle
-            cx={x(current.index)}
-            cy={y(currentMean)}
-            r="2.5"
-            fill="currentColor"
-          />
+      <div className="mean-chart-plot">
+        <svg
+          viewBox="0 0 160 32"
+          role="img"
+          aria-label={title + ' over time for ' + samples.length + ' loaded frames'}
+        >
+          <path d="M2 16H158" stroke="var(--line)" />
+          <path d={path} fill="none" stroke="currentColor" strokeWidth="1.6" />
+          {current && currentMean !== undefined && (
+            <circle
+              cx={x(current.index)}
+              cy={y(currentMean)}
+              r="2.5"
+              fill="currentColor"
+            />
+          )}
+        </svg>
+        {run && (
+          <div className="chart-times">
+            <span>{frameTime(run, 0)}</span>
+            <span>{frameTime(run, last)}</span>
+          </div>
         )}
-      </svg>
+      </div>
     </div>
   );
 });

@@ -34,3 +34,17 @@ it('provides distinct 3D sources with a small solver workload', () => {
     expect(nx * ny * e.nz! * exampleConditions(e, ['neumann']).steps).toBeLessThan(4e6);
   }
 });
+
+it('sets physical units for every example independently of the previous workspace', () => {
+  for (const example of examples) {
+    const m = exampleConditions(example, ['periodic']);
+    expect(m.units).toEqual({ length: 'km', time: 'h' });
+    expect(m).toMatchObject({
+      vx: example.vx,
+      vy: example.vy,
+      D: example.D,
+      dt: example.dt,
+    });
+    expect(m).not.toHaveProperty('processes');
+  }
+});

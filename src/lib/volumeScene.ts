@@ -90,15 +90,13 @@ export function createVolumeScene(host: HTMLDivElement, dimensions: number[]) {
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('webgl2', { alpha: true, antialias: true });
   if (!context)
-    throw new Error(
-      'WebGL2 is unavailable. Choose Slice or Projection to explore this run.',
-    );
+    throw new Error('WebGL2 is unavailable. Choose a 2D view to explore the field.');
   const renderer = new WebGLRenderer({ canvas, context, alpha: true, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   const scene = new Scene();
   const camera = new PerspectiveCamera(36, 1, 0.01, 20);
   camera.up.set(0, 0, 1);
-  camera.position.set(1.35, -1.85, 1.2).multiplyScalar(1.2);
+  camera.position.set(1.35, -1.85, 1.2);
   const controls = new OrbitControls(camera, canvas);
   controls.enablePan = false;
   canvas.tabIndex = 0;

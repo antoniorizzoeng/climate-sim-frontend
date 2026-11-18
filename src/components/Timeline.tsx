@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Activity, Play, Pause, SkipBack, SkipForward } from 'lucide-react';
 import type { Run } from '@/lib/model';
-import { numberText } from '@/lib/model';
+import { frameTime, type Units } from '@/lib/model';
 export function Timeline({
   run,
   n,
@@ -9,8 +9,10 @@ export function Timeline({
   ready = true,
   autoplay = false,
   clocks,
+  units,
 }: {
   clocks?: string[];
+  units?: Units;
   ready?: boolean;
   autoplay?: boolean;
   run?: Run | null;
@@ -65,7 +67,7 @@ export function Timeline({
     return () => window.removeEventListener('keydown', handler);
   }, [toggle, stepFrame, count]);
   const step = run ? Math.min(n * run.resolved.out_every, run.resolved.steps) : 0,
-    time = step * (run?.resolved.dt ?? 0);
+    time = run ? frameTime(run, n) : `t = 0 ${units?.time ?? 'h'}`;
   return (
     <section className="panel timeline">
       <header className="panel-head">
@@ -105,7 +107,7 @@ export function Timeline({
         <input
           type="range"
           aria-label="Frame scrubber"
-          aria-valuetext={clocks?.[n] ?? `Step ${step}, time ${numberText(time)}`}
+          aria-valuetext={clocks?.[n] ?? `Step ${step}, ${time}`}
           min={0}
           max={last || 1}
           value={n}
@@ -135,7 +137,7 @@ export function Timeline({
             </>
           ) : (
             <>
-              Step <b>{step}</b> <i>/</i> Time <b>{numberText(time)}</b>
+              Step <b>{step}</b> <i>/</i> <b>{time}</b>
             </>
           )}
         </span>
