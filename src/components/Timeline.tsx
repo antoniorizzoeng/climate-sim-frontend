@@ -8,7 +8,9 @@ export function Timeline({
   setN,
   ready = true,
   autoplay = false,
+  clocks,
 }: {
+  clocks?: string[];
   ready?: boolean;
   autoplay?: boolean;
   run?: Run | null;
@@ -69,7 +71,7 @@ export function Timeline({
       <header className="panel-head">
         <h2>
           <Activity size={17} />
-          Timeline
+          {clocks ? 'Layer playback' : 'Timeline'}
         </h2>
         <span className="mono muted">
           {count ? `Frame ${n + 1} / ${count}` : 'No frames yet'}
@@ -103,7 +105,7 @@ export function Timeline({
         <input
           type="range"
           aria-label="Frame scrubber"
-          aria-valuetext={`Step ${step}, time ${numberText(time)}`}
+          aria-valuetext={clocks?.[n] ?? `Step ${step}, time ${numberText(time)}`}
           min={0}
           max={last || 1}
           value={n}
@@ -127,7 +129,15 @@ export function Timeline({
       </div>
       <div className="timeline-meta">
         <span>
-          Step <b>{step}</b> <i>/</i> Time <b>{numberText(time)}</b>
+          {clocks ? (
+            <>
+              {clocks[0]} – {clocks[last]} · Local time <b>{clocks[n]}</b>
+            </>
+          ) : (
+            <>
+              Step <b>{step}</b> <i>/</i> Time <b>{numberText(time)}</b>
+            </>
+          )}
         </span>
         <span>
           <kbd>space</kbd> play / pause <kbd>←</kbd>

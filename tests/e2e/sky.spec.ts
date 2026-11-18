@@ -1,0 +1,60 @@
+import { mkdir } from 'node:fs/promises';
+import { test, expect } from '@playwright/test';
+
+test('observing site → nowcast timeline → three synchronised layer movies', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('/');
+  await expect(page.getByText('Mock engine')).toBeVisible();
+  await page.clock.setSystemTime(new Date('2026-11-17T21:00:00Z'));
+  await page.getByRole('button', { name: 'Sky', exact: true }).click();
+  await expect(page.getByLabel('Latitude (°)')).toHaveValue('');
+  await page.getByLabel('Latitude (°)').fill('28.76');
+  await page.getByLabel('Longitude (°)').fill('-17.89');
+  await page.getByText('Save this site', { exact: true }).click();
+  await page.getByLabel('Site name').fill('Roque de los Muchachos');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByLabel('Saved sites').selectOption('Roque de los Muchachos');
+  await page.getByText('Save this site', { exact: true }).click();
+  await page.getByRole('button', { name: 'Run nowcast' }).click();
+  const chart = page.getByRole('region', { name: 'Tonight at a glance' });
+  await expect(chart.getByText('Nowcast (wind transport)')).toBeVisible({
+    timeout: 30000,
+  });
+  await expect(chart.getByText('Model forecast (Open-Meteo)')).toBeVisible();
+  await expect(chart.getByText('No qualifying stretch')).toHaveCount(0);
+  for (const layer of ['low', 'mid', 'high'])
+    await expect(
+      page.getByRole('img', { name: layer + ' cloud cover · frame 1', exact: true }),
+    ).toBeVisible();
+  await page.getByRole('button', { name: 'Next frame' }).click();
+  await expect(page.getByRole('img', { name: /cloud cover · frame 2$/ })).toHaveCount(
+    3,
+  );
+  await expect(page.getByLabel('Frame scrubber')).toHaveAttribute(
+    'aria-valuetext',
+    /\d{2}:10/,
+  );
+  await page.addScriptTag({ path: require.resolve('axe-core/axe.min.js') });
+  await mkdir('artifacts', { recursive: true });
+  for (const width of [1440, 375]) {
+    await page.setViewportSize({ width, height: 960 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    const issues = await page.evaluate(async () =>
+      (await window.axe.run(document)).violations.map((v) => ({
+        id: v.id,
+        targets: v.nodes.map((n) => n.target),
+      })),
+    );
+    expect(issues).toEqual([]);
+    await page.screenshot({ path: 'artifacts/sky-' + width + '.png', fullPage: true });
+  }
+  await page.getByRole('button', { name: 'Refresh nowcast' }).click();
+  await expect(page.locator('.sky-recent li')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm delete' }).click();
+  await expect(page.locator('.sky-recent li')).toHaveCount(1);
+  await page.locator('.sky-recent button').click();
+  await expect(chart).toBeVisible();
+});

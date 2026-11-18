@@ -308,6 +308,69 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/nowcasts': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['listNowcasts'];
+    put?: never;
+    /**
+     * Advect cloud cover around an observing site for the next 1–12 hours.
+     * @description Uses hourly Open-Meteo low, mid and high cloud cover and winds at 850, 500 and 300 hPa.
+     *     Three FIFO runs transport the initial cloud layers on a local grid with zero-gradient edges.
+     *     Transport omits cloud formation, dissipation and vertical motion. It is most useful for a few hours,
+     *     especially before air from outside the domain reaches the site. Grid footprints must stay short of the poles.
+     *     Coordinates of the site and surrounding grid are sent to Open-Meteo. A failed wind-file probe or
+     *     unavailable forecast yields an error record with a diagnostic. Attribute model data to Open-Meteo.
+     */
+    post: operations['createNowcast'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/nowcasts/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components['parameters']['NowcastId'];
+      };
+      cookie?: never;
+    };
+    get: operations['getNowcast'];
+    put?: never;
+    post?: never;
+    /** Stop and delete the nowcast and its three layer runs. */
+    delete: operations['deleteNowcast'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/nowcasts/{id}/refresh': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components['parameters']['NowcastId'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Create a separate nowcast with the same parameters, bypassing the local hourly cache. */
+    post: operations['refreshNowcast'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -514,8 +577,99 @@ export interface components {
       /** @description Error text when status is error */
       message: string | null;
     };
+    NowcastParams: {
+      lat: number;
+      lon: number;
+      /**
+       * @description Half the width of the square domain.
+       * @default 300
+       */
+      radius_km?: number;
+      /** @default 6 */
+      hours?: number;
+      /**
+       * @description Simulation cells per side.
+       * @default 96
+       */
+      resolution?: number;
+    };
+    CloudFraction: number;
+    SkyCover: {
+      low: components['schemas']['CloudFraction'];
+      mid: components['schemas']['CloudFraction'];
+      high: components['schemas']['CloudFraction'];
+      total: components['schemas']['CloudFraction'];
+      /** @description One minus total cloud fraction. */
+      clear: components['schemas']['CloudFraction'];
+    };
+    Nowcast: {
+      id: string;
+      /** @enum {string} */
+      status: 'fetching' | 'queued' | 'running' | 'done' | 'error';
+      /** Format: date-time */
+      created_at: string;
+      params: components['schemas']['NowcastParams'];
+      /**
+       * Format: date-time
+       * @description UTC valid hour of initial cloud cover. Open-Meteo best match can combine model cycles.
+       */
+      data_time: string | null;
+      layers: {
+        /** @enum {string} */
+        layer: 'low' | 'mid' | 'high';
+        run_id: string;
+        /** @enum {integer} */
+        pressure_hpa: 850 | 500 | 300;
+      }[];
+      /** @description Null until done. Includes the initial hour and the final frame at ten-minute spacing. */
+      site:
+        | {
+            /** Format: date-time */
+            time: string;
+            /** @description Bilinear site samples. Total uses random overlap across layers. */
+            nowcast: components['schemas']['SkyCover'];
+            /** @description Open-Meteo site layers and its own total, linearly interpolated between UTC hours. */
+            model: components['schemas']['SkyCover'];
+            /** @description Hourly 250 hPa wind speed in m/s held until the next hour. */
+            jet_ms: number;
+            /**
+             * @description Rule of thumb from jet_ms only. Good below 20, fair from 20 through 35, poor above 35.
+             * @enum {string}
+             */
+            seeing: 'good' | 'fair' | 'poor';
+          }[]
+        | null;
+      /** @description Local cell-centred equirectangular grid. The site is at fractional indices ((nx−1)/2, (ny−1)/2). */
+      grid: {
+        nx: number;
+        ny: number;
+        /** @description Eastward cell spacing in metres. */
+        dx_m: number;
+        /** @description Northward cell spacing in metres. */
+        dy_m: number;
+        /** @description Latitude of the southwest cell centre in degrees. */
+        lat0: number;
+        /** @description Longitude of the southwest cell centre in degrees. */
+        lon0: number;
+      };
+      message: string | null;
+      /**
+       * Format: date-time
+       * @description Seven days from completion for a terminal record.
+       */
+      expires_at: string;
+    };
   };
   responses: {
+    /** @description Sky nowcast record */
+    NowcastRecord: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        'application/json': components['schemas']['Nowcast'];
+      };
+    };
     /** @description Invalid request */
     ValidationError: {
       headers: {
@@ -552,6 +706,7 @@ export interface components {
     };
   };
   parameters: {
+    NowcastId: string;
     FieldId: string;
     RunId: string;
     FrameIndex: number;
@@ -1180,6 +1335,101 @@ export interface operations {
       };
       404: components['responses']['MessageError'];
       409: components['responses']['MessageError'];
+    };
+  };
+  listNowcasts: {
+    parameters: {
+      query?: {
+        limit?: components['parameters']['Limit'];
+        cursor?: components['parameters']['Cursor'];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Most recent first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            items: components['schemas']['Nowcast'][];
+            next_cursor: string | null;
+          };
+        };
+      };
+      422: components['responses']['ValidationError'];
+    };
+  };
+  createNowcast: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NowcastParams'];
+      };
+    };
+    responses: {
+      202: components['responses']['NowcastRecord'];
+      422: components['responses']['ValidationError'];
+    };
+  };
+  getNowcast: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components['parameters']['NowcastId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: components['responses']['NowcastRecord'];
+      404: components['responses']['MessageError'];
+    };
+  };
+  deleteNowcast: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components['parameters']['NowcastId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      404: components['responses']['MessageError'];
+    };
+  };
+  refreshNowcast: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components['parameters']['NowcastId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      202: components['responses']['NowcastRecord'];
+      404: components['responses']['MessageError'];
     };
   };
 }

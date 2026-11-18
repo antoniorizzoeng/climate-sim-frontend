@@ -17,6 +17,7 @@ import {
   Play,
   RotateCcw,
   SlidersHorizontal,
+  Telescope,
   UploadCloud,
   Waves,
 } from 'lucide-react';
@@ -43,6 +44,7 @@ import { Player } from '@/components/Player';
 import { Examples } from '@/components/Examples';
 import { examplePlane, exampleConditions, examples } from '@/lib/examples';
 import { Output } from '@/components/Output';
+import { Sky } from '@/components/sky/Sky';
 import { History } from '@/components/History';
 
 async function connect() {
@@ -55,7 +57,7 @@ export default function Workspace() {
   const [config, setConfig] = useState<Config>(),
     [connError, setConnError] = useState(false),
     [attempt, retry] = useState(0);
-  const [view, setView] = useState<'workspace' | 'history'>('workspace'),
+  const [view, setView] = useState<'workspace' | 'history' | 'sky'>('workspace'),
     [tab, setTab] = useState<'field' | 'conditions'>('field'),
     [mode, setMode] = useState<'draw' | 'upload'>('draw');
   const [plane, setPlane] = useState(() => makePlane()),
@@ -310,6 +312,14 @@ export default function Workspace() {
               <HistoryIcon size={15} />
               History
             </button>
+            <button
+              aria-current={view === 'sky' ? 'page' : undefined}
+              className={view === 'sky' ? 'active' : ''}
+              onClick={() => setView('sky')}
+            >
+              <Telescope size={15} />
+              Sky
+            </button>
           </nav>
           <div className="connection">
             <i className={'dot ' + (config ? 'green' : '')} />
@@ -333,12 +343,18 @@ export default function Workspace() {
               ADVECTION–DIFFUSION LAB
             </div>
             <h1>
-              {view === 'history' ? 'Simulation history' : 'Simulation workspace'}
+              {view === 'history'
+                ? 'Simulation history'
+                : view === 'sky'
+                  ? 'Observing sky'
+                  : 'Simulation workspace'}
             </h1>
             <p>
               {view === 'history'
                 ? 'Reopen fields, inspect past runs, and recover archived experiments.'
-                : 'Create an initial field, configure the solver, and explore its evolution.'}
+                : view === 'sky'
+                  ? 'Track cloud cover and seeing at your observing site.'
+                  : 'Create an initial field, configure the solver, and explore its evolution.'}
             </p>
           </div>
           <span className="solver-tag">
@@ -385,7 +401,9 @@ export default function Workspace() {
             }}
           />
         )}
-        {view === 'history' ? (
+        {view === 'sky' ? (
+          <Sky online={!!config} />
+        ) : view === 'history' ? (
           config ? (
             <History onDelete={forget} openField={openField} openRun={openRun} />
           ) : (
@@ -695,7 +713,7 @@ export default function Workspace() {
           </span>
           <span>
             <BookOpen size={13} />
-            API v1.0.0
+            API v1.1.0
           </span>
         </footer>
       </main>
