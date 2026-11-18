@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Crosshair, LocateFixed, Play, BookmarkPlus } from 'lucide-react';
 import {
   loadSites,
@@ -10,11 +10,16 @@ import {
   type SavedSite,
 } from '@/lib/sky';
 
+import { MapSettings } from './MapSettings';
 export function SitePicker({
   busy,
   run,
+  mapKey = '',
+  onKey,
 }: {
   busy: boolean;
+  mapKey?: string;
+  onKey?: (s: string) => void;
   run: (params: NowcastParams) => void;
 }) {
   const [lat, setLat] = useState(''),
@@ -26,6 +31,13 @@ export function SitePicker({
   const [sites, setSites] = useState<SavedSite[]>(loadSites),
     [notice, setNotice] = useState(''),
     [locating, setLocating] = useState(false);
+  const [windowMode, setWindowMode] = useState<'tonight' | 'now'>('tonight');
+  const choose = useCallback((lat: number, lon: number) => {
+    setLat(String(lat));
+    setLon(String(lon));
+    setName('');
+    setNotice('');
+  }, []);
   const coordinatesValid = lat !== '' && lon !== '' && validCoordinates(+lat, +lon);
   const polar = lat !== '' && reachesPole(+lat, +radius);
   function locate() {
@@ -66,6 +78,15 @@ export function SitePicker({
           Observing site
         </h2>
       </header>
+      {onKey && (
+        <MapSettings
+          mapKey={mapKey}
+          onKey={onKey}
+          lat={coordinatesValid ? +lat : null}
+          lon={coordinatesValid ? +lon : null}
+          choose={choose}
+        />
+      )}
       <form
         className="sky-body control-stack"
         onSubmit={(e) => {
@@ -75,42 +96,34 @@ export function SitePicker({
               lat: +lat,
               lon: +lon,
               radius_km: +radius,
-              hours: +hours,
+              window: windowMode,
+              ...(windowMode === 'now' && { hours: +hours }),
               resolution: +resolution,
             });
         }}
       >
         {sites.length > 0 && (
-          <label>
-            Saved sites
-            <select
-              value={
-                sites.find(
-                  (s) =>
-                    coordinatesValid &&
-                    s.lat === +lat &&
-                    s.lon === +lon &&
-                    s.name === name,
-                )?.name ?? ''
-              }
-              onChange={(e) => {
-                const site = sites.find((s) => s.name === e.target.value);
-                if (site) {
-                  setLat(String(site.lat));
-                  setLon(String(site.lon));
-                  setName(site.name);
-                  setNotice('');
+          <div className="sky-sites" role="group" aria-label="Saved sites">
+            {sites.map((s) => (
+              <button
+                className="secondary"
+                type="button"
+                key={s.name}
+                aria-pressed={
+                  coordinatesValid &&
+                  +lat === s.lat &&
+                  +lon === s.lon &&
+                  name === s.name
                 }
-              }}
-            >
-              <option value="">Choose a saved site…</option>
-              {sites.map((s) => (
-                <option key={s.name} value={s.name}>
-                  {s.name} · {s.lat}°, {s.lon}°
-                </option>
-              ))}
-            </select>
-          </label>
+                onClick={() => {
+                  choose(s.lat, s.lon);
+                  setName(s.name);
+                }}
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
         )}
         <div className="input-grid">
           <label>
@@ -151,10 +164,11 @@ export function SitePicker({
         </button>
         <p className="hint">
           Running or refreshing sends the site and surrounding grid coordinates to
-          Open-Meteo through the backend.
+          Open-Meteo through the backend. With a map key, place searches and map tiles
+          go directly to MapTiler with your key.
         </p>
-        <details>
-          <summary>Save this site</summary>
+        <div>
+          <h3>Save this site</h3>
           <div className="sky-save">
             <label>
               Site name
@@ -174,12 +188,22 @@ export function SitePicker({
               Save
             </button>
           </div>
-        </details>
+        </div>
         {notice && (
           <p role="status" className="hint">
             {notice}
           </p>
         )}
+        <label>
+          Forecast window
+          <select
+            value={windowMode}
+            onChange={(e) => setWindowMode(e.target.value as 'tonight' | 'now')}
+          >
+            <option value="tonight">Tonight</option>
+            <option value="now">Next hours</option>
+          </select>
+        </label>
         <div className="sky-settings">
           <label>
             Radius (km)
@@ -193,17 +217,19 @@ export function SitePicker({
               onChange={(e) => setRadius(e.target.value)}
             />
           </label>
-          <label>
-            Hours
-            <input
-              type="number"
-              min="1"
-              max="12"
-              required
-              value={hours}
-              onChange={(e) => setHours(e.target.value)}
-            />
-          </label>
+          {windowMode === 'now' && (
+            <label>
+              Hours
+              <input
+                type="number"
+                min="1"
+                max="12"
+                required
+                value={hours}
+                onChange={(e) => setHours(e.target.value)}
+              />
+            </label>
+          )}
           <label>
             Cells per side
             <input

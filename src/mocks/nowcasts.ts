@@ -20,8 +20,17 @@ export function validParams(body: unknown): body is NowcastParams {
   const p = { ...defaults, ...body } as NowcastParams & typeof defaults;
   return (
     Object.keys(body).every((k) =>
-      ['lat', 'lon', 'hours', 'resolution', 'radius_km', 'blend_tau_hours'].includes(k),
+      [
+        'lat',
+        'lon',
+        'window',
+        'hours',
+        'resolution',
+        'radius_km',
+        'blend_tau_hours',
+      ].includes(k),
     ) &&
+    (p.window === undefined || p.window === 'now' || p.window === 'tonight') &&
     validCoordinates(p.lat, p.lon) &&
     Number.isFinite(p.radius_km) &&
     p.radius_km >= 50 &&
@@ -36,6 +45,51 @@ export function validParams(body: unknown): body is NowcastParams {
     Number.isFinite(p.blend_tau_hours) &&
     p.blend_tau_hours > 0
   );
+}
+
+// Approximate solar night and synthetic Moon samples for the browser demo.
+export function mockNight(p: NowcastParams, now: number): Nowcast['night'] {
+  const hour = 3600000;
+  const start = Math.floor(now / hour) * hour;
+  const day = Math.floor(start / (24 * hour));
+  const rad = Math.PI / 180;
+  const ordinal =
+    (start - Date.UTC(new Date(start).getUTCFullYear(), 0, 1)) / (24 * hour);
+  const declination = -23.44 * rad * Math.cos((2 * Math.PI * (ordinal + 10)) / 365.25);
+  const latitude = p.lat * rad;
+  const cosAngle =
+    (Math.sin(-18 * rad) - Math.sin(latitude) * Math.sin(declination)) /
+    (Math.cos(latitude) * Math.cos(declination));
+  if (cosAngle <= -1) return null;
+  const halfDay = Math.acos(Math.min(1, cosAngle)) / (15 * rad);
+  const noon = (day * 24 + 12 - p.lon / 15) * hour;
+  let dusk = noon + halfDay * hour,
+    dawn = noon + (24 - halfDay) * hour;
+  while (dawn <= start) {
+    dusk += 24 * hour;
+    dawn += 24 * hour;
+  }
+  while (dawn - 24 * hour > start) {
+    dusk -= 24 * hour;
+    dawn -= 24 * hour;
+  }
+  const end = Math.min(
+    dawn,
+    start + (p.window === 'tonight' ? 24 : (p.hours ?? 6)) * hour,
+  );
+  if (dusk > end) return null;
+  const moon = [];
+  for (let t = Math.max(start, dusk); t <= end; t += tenMinutes)
+    moon.push({
+      time: new Date(t).toISOString(),
+      illumination: 0.68,
+      altitude_deg: 50 * Math.sin(((t - dusk) / (12 * hour)) * Math.PI - 0.5),
+    });
+  return {
+    dusk: new Date(dusk).toISOString(),
+    dawn: new Date(dawn).toISOString(),
+    moon,
+  };
 }
 
 export function createNowcast(input: NowcastParams) {
@@ -53,6 +107,7 @@ export function createNowcast(input: NowcastParams) {
     layers: [],
     site: null,
     best_window: null,
+    night: null,
     message: null,
     expires_at: new Date(now + week).toISOString(),
     grid: {
@@ -72,10 +127,22 @@ export function createNowcast(input: NowcastParams) {
 
 function prepare(record: Nowcast) {
   const { nx: n, dx_m: dx } = record.grid;
-  const steps = (record.params.hours ?? skyDefaults.hours) * 6;
+
   record.data_time = new Date(
     Math.floor(Date.parse(record.created_at) / 3600000) * 3600000,
   ).toISOString();
+  const startTime = Date.parse(record.data_time);
+  record.night = mockNight(record.params, startTime);
+  const steps =
+    record.params.window === 'tonight' && record.night
+      ? Math.max(
+          1,
+          Math.min(
+            144,
+            Math.ceil((Date.parse(record.night.dawn) - startTime) / tenMinutes),
+          ),
+        )
+      : (record.params.hours ?? skyDefaults.hours) * 6;
   record.layers = layerNames.map((layer, i) => {
     const data = Float32Array.from({ length: n * n }, (_, k) => {
       const x = ((k % n) + 0.5) / n,
@@ -213,7 +280,13 @@ export function listNowcasts() {
       record.message = 'A cloud layer run failed or was removed.';
     } else if (children.every((r) => r?.status === 'done')) {
       record.site = samples(record, children as Run[]);
-      record.best_window = blendedWindow(record.site);
+      record.best_window = blendedWindow(
+        record.site.filter(
+          (s) =>
+            !record.night ||
+            (s.time >= record.night.dusk && s.time <= record.night.dawn),
+        ),
+      );
       record.status = 'done';
     } else if (children.some((r) => r?.status === 'running' || r?.status === 'done'))
       record.status = 'running';

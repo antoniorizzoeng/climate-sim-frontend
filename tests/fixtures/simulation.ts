@@ -10,7 +10,7 @@ export const request: RequestBody = {
 export function simulation(overrides: Partial<Run> = {}): Run {
   return {
     id: 'simulation-a',
-    name: 'Simulation A',
+    name: 'Test simulation',
     size_bytes: 1024,
     status: 'done',
     created_at: '2026-01-01T00:00:00Z',
@@ -80,4 +80,13 @@ export const field: Field = {
     mean: 3,
     missing_count: 1,
   },
+};
+
+export const storage = {
+  runs_bytes: 1024,
+  fields_bytes: 512,
+  nowcasts_bytes: 512,
+  used_bytes: 2048,
+  free_bytes: 6144,
+  total_bytes: 8192,
 };

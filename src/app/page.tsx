@@ -143,6 +143,11 @@ export default function Workspace() {
       })
       .then((c) => {
         if (!active) return;
+        if (
+          new URLSearchParams(window.location.search).has('history_tab') &&
+          attempt === 0
+        )
+          setView('history');
         setConfig(c);
         setConnError(false);
         const first = c.supported_boundary_conditions.includes('dirichlet')

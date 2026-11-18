@@ -91,3 +91,42 @@ export function seeingHours<T extends Pick<SiteSample, 'time'>>(site: T[]) {
   const hour = (s: T) => Math.floor(Date.parse(s.time) / 3_600_000);
   return site.filter((s, i) => !i || hour(s) !== hour(site[i - 1]));
 }
+
+const mapStorageKey = 'climatesim.sky.mapKey';
+export function loadMapKey() {
+  try {
+    return window.localStorage.getItem(mapStorageKey)?.trim() ?? '';
+  } catch {
+    return '';
+  }
+}
+export function storeMapKey(key: string) {
+  try {
+    if (key) window.localStorage.setItem(mapStorageKey, key);
+    else window.localStorage.removeItem(mapStorageKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// lat0/lon0 locate a cell centre. MapLibre expects the outer image corners,
+// clockwise from the northwest. Keep longitudes continuous at the date line.
+export function gridCorners(
+  grid: Nowcast['grid'],
+): [[number, number], [number, number], [number, number], [number, number]] {
+  const deg = 180 / (Math.PI * 6371000);
+  const dy = grid.dy_m * deg;
+  const midLat = grid.lat0 + (dy * (grid.ny - 1)) / 2;
+  const dx = (grid.dx_m * deg) / Math.cos((midLat * Math.PI) / 180);
+  const west = grid.lon0 - dx / 2,
+    south = grid.lat0 - dy / 2;
+  const east = west + grid.nx * dx,
+    north = south + grid.ny * dy;
+  return [
+    [west, north],
+    [east, north],
+    [east, south],
+    [west, south],
+  ];
+}

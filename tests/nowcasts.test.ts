@@ -66,7 +66,8 @@ it('refreshes to a separate record and deletes only its own layer runs', async (
 
 it('returns the blended site samples and their best observing window', async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
-  const start = Date.now();
+  const start = Date.parse('2026-11-17T21:00:00Z');
+  vi.setSystemTime(start);
   const item = checked(await api.POST('/nowcasts', { body: observatory }));
   const params = { path: { id: item.id } };
   expect(item.params.blend_tau_hours).toBe(2);
@@ -101,4 +102,42 @@ it('returns the blended site samples and their best observing window', async () 
   } finally {
     checked(await api.DELETE('/nowcasts/{id}', { params }));
   }
+});
+
+it('forecasts through dawn, bounds the best window to the night and rejects polar daylight', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  const start = Date.parse('2026-11-17T15:00:00Z');
+  vi.setSystemTime(start);
+  const record = checked(
+    await api.POST('/nowcasts', {
+      body: { ...observatory, window: 'tonight', hours: 1 },
+    }),
+  );
+  const params = { path: { id: record.id } };
+  try {
+    for (const elapsed of [1000, 6000, 11000, 16000]) {
+      vi.setSystemTime(start + elapsed);
+      checked(await api.GET('/nowcasts/{id}', { params }));
+    }
+    const result = checked(await api.GET('/nowcasts/{id}', { params }));
+    expect(result.status).toBe('done');
+    expect(result.night!.moon.length).toBeGreaterThan(6);
+    const end = Date.parse(result.site!.at(-1)!.time);
+    expect(end).toBeGreaterThanOrEqual(Date.parse(result.night!.dawn));
+    expect(end - Date.parse(result.night!.dawn)).toBeLessThan(600000);
+    expect(Date.parse(result.best_window!.start)).toBeGreaterThanOrEqual(
+      Date.parse(result.night!.dusk),
+    );
+    expect(Date.parse(result.best_window!.end)).toBeLessThanOrEqual(
+      Date.parse(result.night!.dawn),
+    );
+  } finally {
+    checked(await api.DELETE('/nowcasts/{id}', { params }));
+  }
+  vi.setSystemTime(Date.parse('2026-06-21T12:00:00Z'));
+  const polar = await api.POST('/nowcasts', {
+    body: { lat: 70, lon: 12, window: 'tonight' },
+  });
+  expect(polar.response.status).toBe(422);
+  expect(polar.error?.detail[0].msg).toMatch(/no astronomical darkness/i);
 });

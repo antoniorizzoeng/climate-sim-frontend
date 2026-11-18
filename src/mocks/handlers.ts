@@ -9,6 +9,7 @@ import {
   type Plane,
   type FrameView,
   type Run,
+  type Field,
   type RequestBody,
 } from '@/lib/model';
 import {
@@ -24,7 +25,14 @@ import {
   tick,
   validate,
 } from './store';
-import { createNowcast, listNowcasts, removeNowcast, validParams } from './nowcasts';
+import { inventory, historyList } from './history';
+import {
+  mockNight,
+  createNowcast,
+  listNowcasts,
+  removeNowcast,
+  validParams,
+} from './nowcasts';
 import { netcdf } from './netcdf';
 import { downsample } from './raster';
 
@@ -178,9 +186,21 @@ function isRequest(body: unknown): body is RequestBody {
     'processes',
   ];
   if (
-    !objectWithKeys(body, ['source', 'bc', 'units', 'name', ...numeric]) ||
+    !objectWithKeys(body, ['source', 'bc', 'name', 'units', ...numeric]) ||
     !Number.isFinite(body.dt) ||
     !Number.isInteger(body.steps)
+  )
+    return false;
+  if (
+    body.name !== undefined &&
+    (typeof body.name !== 'string' || !body.name.trim() || body.name.length > 120)
+  )
+    return false;
+  if (
+    body.units !== undefined &&
+    (!objectWithKeys(body.units, ['length', 'time']) ||
+      !['cell', 'km', 'm'].includes(String(body.units.length)) ||
+      !['t', 's', 'h'].includes(String(body.units.time)))
   )
     return false;
   if (numeric.some((k) => k in body && !Number.isFinite(body[k]))) return false;
@@ -254,14 +274,41 @@ async function runRequest(request: Request, validateOnly: boolean) {
 }
 type ExportJob = { progress: number; file?: Blob; error?: string };
 const exportCache = new WeakMap<import('@/lib/model').Run, Map<string, ExportJob>>();
+function newNowcast(params: Parameters<typeof createNowcast>[0]) {
+  if (params.window === 'tonight' && !mockNight(params, Date.now()))
+    return invalid(
+      'No astronomical darkness in the next 24 hours. Choose Next hours or another site.',
+    );
+  return HttpResponse.json(createNowcast(params), { status: 202 });
+}
+async function rename(item: Run | Field | undefined, request: Request) {
+  if (!item) return missing();
+  const body: unknown = await request.json().catch(() => null);
+  if (
+    !objectWithKeys(body, ['name']) ||
+    typeof body.name !== 'string' ||
+    !body.name.trim() ||
+    body.name.trim().length > 120
+  )
+    return invalid('Enter a name between 1 and 120 characters.');
+  item.name = body.name.trim();
+  return HttpResponse.json(item);
+}
 export const handlers = [
+  http.get(url('/storage'), () => HttpResponse.json(inventory().storage)),
+  http.patch(url('/runs/:id'), ({ params, request }) =>
+    rename(runs.get(String(params.id)), request),
+  ),
+  http.patch(url('/fields/:id'), ({ params, request }) =>
+    rename(fields.get(String(params.id))?.field, request),
+  ),
   http.post(url('/nowcasts'), async ({ request }) => {
     const params: unknown = await request.json().catch(() => null);
-    return validParams(params)
-      ? HttpResponse.json(createNowcast(params), { status: 202 })
-      : invalid(
-          'Check coordinates, grid footprint, radius, hours, resolution and blend time.',
-        );
+    if (!validParams(params))
+      return invalid(
+        'Check coordinates, grid footprint, radius, hours, resolution and blend time.',
+      );
+    return newNowcast(params);
   }),
   http.get(url('/nowcasts'), ({ request }) => {
     const query = new URL(request.url).searchParams;
@@ -276,9 +323,7 @@ export const handlers = [
   }),
   http.post(url('/nowcasts/:id/refresh'), ({ params }) => {
     const record = listNowcasts().get(String(params.id));
-    return record
-      ? HttpResponse.json(createNowcast(record.params), { status: 202 })
-      : missing();
+    return record ? newNowcast(record.params) : missing();
   }),
   http.delete(url('/nowcasts/:id'), ({ params }) =>
     removeNowcast(String(params.id))
@@ -295,11 +340,7 @@ export const handlers = [
   ),
   http.get(url('/config'), () => HttpResponse.json(config)),
   http.get(url('/fields'), ({ request }) => {
-    tick();
-    return list(
-      [...fields.values()].map((f) => f.field),
-      new URL(request.url).searchParams,
-    );
+    return historyList(inventory().fields, new URL(request.url).searchParams);
   }),
   http.post(url('/fields'), async ({ request }) => {
     const form = await request.formData(),
@@ -364,7 +405,13 @@ export const handlers = [
     if (params.operation === 'original')
       return new HttpResponse(
         entry.original ?? netcdf(entry.plane.nx, entry.plane.ny, () => entry.plane),
-        { headers: { 'Content-Type': 'application/x-netcdf' } },
+        {
+          headers: {
+            'Content-Type': 'application/x-netcdf',
+            'Content-Disposition':
+              "attachment; filename*=UTF-8''" + encodeURIComponent(entry.originalName),
+          },
+        },
       );
     if (entry.field.state === 'archived') return conflict('Field is archived.');
     const q = new URL(request.url).searchParams,
@@ -386,8 +433,7 @@ export const handlers = [
   http.post(url('/runs/validate'), ({ request }) => runRequest(request, true)),
   http.post(url('/runs'), ({ request }) => runRequest(request, false)),
   http.get(url('/runs'), ({ request }) => {
-    tick();
-    return list([...runs.values()], new URL(request.url).searchParams);
+    return historyList(inventory().runs, new URL(request.url).searchParams);
   }),
   http.get(url('/runs/:id'), ({ params }) => {
     tick();

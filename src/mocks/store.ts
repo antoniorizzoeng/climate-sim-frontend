@@ -34,7 +34,7 @@ const day = 86400000,
   id = () => crypto.randomUUID().replaceAll('-', '');
 export const fields = new Map<
   string,
-  { field: Field; plane: Plane; original?: File }
+  { field: Field; plane: Plane; originalName: string; original?: File }
 >();
 export const runs = new Map<string, Run>();
 const snapshots = new WeakMap<Run, Plane[]>();
@@ -77,7 +77,7 @@ export function createField(name: string, plane: Plane, original?: File) {
     last_used_at: date(now),
     state: 'active',
     expires_at: date(now + 7 * day),
-    size_bytes: original?.size ?? plane.data.byteLength,
+    size_bytes: (original?.size ?? 0) + plane.data.byteLength,
     variables: [
       {
         name: variable,
@@ -106,7 +106,12 @@ export function createField(name: string, plane: Plane, original?: File) {
       units: '%',
       extra_dims: [],
     });
-  fields.set(field.id, { field, plane, original });
+  fields.set(field.id, {
+    field,
+    plane,
+    original,
+    originalName: original?.name ?? name + '.nc',
+  });
   return field;
 }
 export function selectedPlane(
@@ -281,11 +286,13 @@ export function tick(now = Date.now()) {
         r.expires_at = date(Date.parse(r.finished_at) + 7 * day);
       } else occupied = true;
     }
+    r.size_bytes = r.frames * r.resolved.nx * r.resolved.ny * r.resolved.nz * 4;
     if (r.status === 'queued') r.queue_position = ++position;
     if (r.expires_at && Date.parse(r.expires_at) <= now) {
       if (r.status !== 'expired') {
         r.status = 'expired';
         r.frames = 0;
+        r.size_bytes = 0;
         r.expires_at = date(Date.parse(r.finished_at!) + 37 * day);
       }
       if (Date.parse(r.expires_at) <= now) runs.delete(r.id);
@@ -351,10 +358,10 @@ export function start(body: RequestBody, resolved: Run['resolved']): Run {
   const r: Run = {
     id: id(),
     name:
-      body.name ??
-      (body.source.kind === 'field'
-        ? fields.get(body.source.field_id)!.field.name
-        : body.source.preset) +
+      body.name?.trim() ||
+      (body.source.kind === 'preset'
+        ? body.source.preset.replaceAll('_', ' ')
+        : fields.get(body.source.field_id)!.field.name) +
         ' · ' +
         date(now),
     size_bytes: 0,
