@@ -94,8 +94,10 @@ export function Player({
   onRead,
   readout,
   onPresent,
+  layerLabel,
 }: {
   run: Run;
+  layerLabel?: string;
   n: number;
   colors: Colors;
   range: number[];
@@ -241,6 +243,30 @@ export function Player({
     </div>
   );
   const props = { colors, range, smooth };
+  if (layerLabel)
+    return (
+      <div className="sky-frame">
+        {error ? (
+          <div role="alert" className="plot-message">
+            {error}
+            <button className="secondary" onClick={() => retry((v) => v + 1)}>
+              Retry frame
+            </button>
+          </div>
+        ) : visible?.index === n && available ? (
+          <>
+            <FrameCanvas
+              {...props}
+              frame={visible}
+              label={layerLabel + ' cloud cover · frame ' + (n + 1)}
+            />
+            <span aria-hidden="true" className="sky-marker" />
+          </>
+        ) : (
+          waiting
+        )}
+      </div>
+    );
   return (
     <Viewport
       nx={run.resolved.nx}

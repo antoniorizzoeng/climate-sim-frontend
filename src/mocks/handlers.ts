@@ -21,6 +21,7 @@ import {
   tick,
   validate,
 } from './store';
+import { createNowcast, listNowcasts, removeNowcast, validParams } from './nowcasts';
 import { netcdf } from './netcdf';
 import { downsample } from './raster';
 
@@ -205,6 +206,35 @@ async function runRequest(request: Request, validateOnly: boolean) {
 type ExportJob = { progress: number; file?: Blob; error?: string };
 const exportCache = new WeakMap<import('@/lib/model').Run, Map<string, ExportJob>>();
 export const handlers = [
+  http.post(url('/nowcasts'), async ({ request }) => {
+    const params: unknown = await request.json().catch(() => null);
+    return validParams(params)
+      ? HttpResponse.json(createNowcast(params), { status: 202 })
+      : invalid('Check coordinates, grid footprint, radius, hours and resolution.');
+  }),
+  http.get(url('/nowcasts'), ({ request }) => {
+    const query = new URL(request.url).searchParams;
+    const limit = Number(query.get('limit') ?? 50);
+    return Number.isInteger(limit) && limit >= 1 && limit <= 200
+      ? list([...listNowcasts().values()], query)
+      : invalid('Limit must be between 1 and 200.');
+  }),
+  http.get(url('/nowcasts/:id'), ({ params }) => {
+    const record = listNowcasts().get(String(params.id));
+    return record ? HttpResponse.json(record) : missing();
+  }),
+  http.post(url('/nowcasts/:id/refresh'), ({ params }) => {
+    const record = listNowcasts().get(String(params.id));
+    return record
+      ? HttpResponse.json(createNowcast(record.params), { status: 202 })
+      : missing();
+  }),
+  http.delete(url('/nowcasts/:id'), ({ params }) =>
+    removeNowcast(String(params.id))
+      ? new HttpResponse(null, { status: 204 })
+      : missing(),
+  ),
+
   http.get(url('/health'), () =>
     HttpResponse.json({ status: 'ok', engine: 'Mock MPI engine' }),
   ),
