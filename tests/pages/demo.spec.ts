@@ -26,6 +26,7 @@ test('the Pages export runs simulations and nowcasts in the browser', async ({
     page.getByRole('complementary', { name: 'Demo information' }),
   ).toBeVisible();
   await expect(page.getByText('Mock engine', { exact: true })).toBeVisible();
+  await expect(page.getByText(/not a physics simulation/)).toBeVisible();
   expect((await config).fromServiceWorker()).toBe(true);
   const worker = await page.evaluate(async () => {
     const registration = await navigator.serviceWorker.ready;
