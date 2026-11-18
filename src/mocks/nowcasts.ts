@@ -5,6 +5,7 @@ import {
   skyDefaults,
   tenMinutes,
   validCoordinates,
+  validElevation,
   type Nowcast,
   type NowcastParams,
   type SiteSample,
@@ -14,6 +15,28 @@ import { createField, fields, runs, start, tick, validate } from './store';
 
 const records = new Map<string, Nowcast>();
 const week = 7 * 86400000;
+const mockCloudBands = { low: [0, 2000], mid: [2000, 6500], high: [6500, 12000] };
+
+function mockSiteElevation(
+  params: NowcastParams,
+): NonNullable<Nowcast['site_elevation']> {
+  // The offline demo treats the Mauna Kea summit area as elevated and other sites as sea level.
+  const nearMaunaKea =
+    Math.abs(params.lat - 19.82) < 0.02 && Math.abs(params.lon + 155.47) < 0.02;
+  const elevation_m = params.elevation_m ?? (nearMaunaKea ? 4205 : 0);
+  const above = ([bottom, top]: number[]) =>
+    Math.max(0, Math.min(1, (top - elevation_m) / (top - bottom)));
+  return {
+    elevation_m,
+    source: params.elevation_m == null ? 'open-meteo' : 'user',
+    layer_weights: {
+      low: above(mockCloudBands.low),
+      mid: above(mockCloudBands.mid),
+      high: above(mockCloudBands.high),
+    },
+  };
+}
+
 export function validParams(body: unknown): body is NowcastParams {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
   const defaults = { ...skyDefaults, blend_tau_hours: defaultBlendTauHours };
@@ -28,10 +51,12 @@ export function validParams(body: unknown): body is NowcastParams {
         'resolution',
         'radius_km',
         'blend_tau_hours',
+        'elevation_m',
       ].includes(k),
     ) &&
     (p.window === undefined || p.window === 'now' || p.window === 'tonight') &&
     validCoordinates(p.lat, p.lon) &&
+    validElevation(p.elevation_m) &&
     Number.isFinite(p.radius_km) &&
     p.radius_km >= 50 &&
     p.radius_km <= 1000 &&
@@ -108,6 +133,7 @@ export function createNowcast(input: NowcastParams) {
     site: null,
     best_window: null,
     night: null,
+    site_elevation: null,
     message: null,
     expires_at: new Date(now + week).toISOString(),
     grid: {
@@ -132,6 +158,7 @@ function prepare(record: Nowcast) {
     Math.floor(Date.parse(record.created_at) / 3600000) * 3600000,
   ).toISOString();
   const startTime = Date.parse(record.data_time);
+  record.site_elevation = mockSiteElevation(record.params);
   record.night = mockNight(record.params, startTime);
   const steps =
     record.params.window === 'tonight' && record.night
@@ -197,31 +224,38 @@ function centre(run: Run, frame: number) {
 function samples(record: Nowcast, children: Run[]): SiteSample[] {
   const initial = Date.parse(record.data_time!);
   const tau = record.params.blend_tau_hours ?? defaultBlendTauHours;
+  const weights = record.site_elevation!.layer_weights;
+  const allCounted = layerNames.every((layer) => weights[layer] === 1);
+  const aboveSiteTotal = (
+    cover: Pick<SiteSample['nowcast'], (typeof layerNames)[number]>,
+  ) =>
+    1 -
+    layerNames.reduce((clear, layer) => clear * (1 - cover[layer] * weights[layer]), 1);
   return Array.from({ length: children[0].frames }, (_, i) => {
     const [low, mid, high] = children.map((run) => centre(run, i));
-    const clear = (1 - low) * (1 - mid) * (1 - high),
-      hour = Math.floor(i / 6);
+    const rawNowcast = { low, mid, high };
+    const nowcastTotal = aboveSiteTotal(rawNowcast);
+    const hour = Math.floor(i / 6);
     const jet_ms = [16, 22.5, 18, 14, 28, 38, 24][hour % 7];
     const modelCover = (offset: number) => {
       const value = (h: number) =>
         0.12 + (0.25 * (1 + Math.cos(h * 1.15 + offset))) / 2;
       return value(hour) + ((value(hour + 1) - value(hour)) * (i % 6)) / 6;
     };
-    const total = modelCover(0);
-    const model = {
+    const rawModel = {
       low: modelCover(1),
       mid: modelCover(2),
       high: modelCover(3),
-      total,
-      clear: 1 - total,
     };
+    const modelTotal = allCounted ? modelCover(0) : aboveSiteTotal(rawModel);
+    const model = { ...rawModel, total: modelTotal, clear: 1 - modelTotal };
     const weight = Math.exp(-(i / 6) / tau);
     const mix = (transport: number, forecast: number) =>
       weight * transport + (1 - weight) * forecast;
-    const blendedTotal = mix(1 - clear, total);
+    const blendedTotal = mix(nowcastTotal, modelTotal);
     return {
       time: new Date(initial + i * tenMinutes).toISOString(),
-      nowcast: { low, mid, high, clear, total: 1 - clear },
+      nowcast: { ...rawNowcast, total: nowcastTotal, clear: 1 - nowcastTotal },
       model,
       blend: {
         low: mix(low, model.low),

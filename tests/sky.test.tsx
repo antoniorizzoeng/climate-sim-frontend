@@ -98,6 +98,54 @@ it('plots the blend and uses blended layers in the bands and sample table', () =
   expect(cells[3]).toHaveTextContent('25%');
 });
 
+it('explains ignored and partial layers, dims their raw cover, and hides elevation annotations for legacy results', () => {
+  const record = forecast();
+  const mountain = {
+    elevation_m: 4205,
+    source: 'user' as const,
+    layer_weights: { low: 0, mid: 0.25, high: 1 },
+  };
+  const { container, rerender } = render(
+    <SkyChart record={{ ...record, site_elevation: mountain }} />,
+  );
+  expect(
+    screen.getByText(
+      /Counting cloud above.*low cloud below the site ignored.*25% of mid cloud counted.*high cloud fully counted/,
+    ),
+  ).toBeVisible();
+  expect(screen.getByText('below site')).toBeVisible();
+  expect(screen.getByText('below site · 25% counted')).toBeVisible();
+  expect(container.querySelectorAll('.cover-bands .below-site')).toHaveLength(2);
+  const rawLow = container
+    .querySelector('.cover-bands polygon')
+    ?.getAttribute('points');
+
+  rerender(
+    <SkyChart
+      record={{
+        ...record,
+        site_elevation: {
+          ...mountain,
+          elevation_m: 0,
+          layer_weights: { low: 1, mid: 1, high: 1 },
+        },
+      }}
+    />,
+  );
+  expect(
+    screen.getByText('Counting cloud above 0 m · all layers counted'),
+  ).toBeVisible();
+  expect(container.querySelector('.cover-bands .layer-weight')).toBeNull();
+
+  rerender(<SkyChart record={{ ...record, site_elevation: null }} />);
+  expect(screen.queryByText(/Counting cloud above/)).toBeNull();
+  expect(container.querySelector('.cover-bands .layer-weight')).toBeNull();
+  expect(container.querySelector('.cover-bands polygon')).toHaveAttribute(
+    'points',
+    rawLow,
+  );
+});
+
 it('uses the server window for the label and highlight, including an explicit null', () => {
   const data = forecast();
   const record = {
@@ -173,7 +221,13 @@ it('round-trips saved sites and skips malformed entries', () => {
   const key = localStorage.key(0)!;
   localStorage.setItem(
     key,
-    JSON.stringify([null, {}, { ...observatory, lat: 91 }, observatory]),
+    JSON.stringify([
+      null,
+      {},
+      { ...observatory, lat: 91 },
+      { ...observatory, elevation_m: '1200' },
+      observatory,
+    ]),
   );
   expect(loadSites()).toEqual([observatory]);
   localStorage.setItem(key, '{');
@@ -218,6 +272,7 @@ it('only requests geolocation on click and sends coordinates only on Run', () =>
   expect(run).toHaveBeenCalledWith({
     lat: observatory.lat,
     lon: observatory.lon,
+    elevation_m: null,
     window: 'tonight',
     radius_km: 300,
     resolution: 96,

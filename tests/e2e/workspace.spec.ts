@@ -333,7 +333,7 @@ for (const width of [390, 1440])
       await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
       await page.goto('/');
-      await expect(page.getByText('API v1.4.0')).toBeVisible();
+      await expect(page.getByText('API v1.5.0')).toBeVisible();
       await page.getByRole('button', { name: /Smoke ring diffusion/ }).click();
       const columns = await page.getByLabel('Columns').boundingBox();
       const source = await page

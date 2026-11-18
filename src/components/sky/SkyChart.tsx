@@ -11,6 +11,7 @@ import {
   type Nowcast,
   type SiteSample,
 } from '@/lib/sky';
+import { LayerWeightTag, mostlyBelow, ObserverCloud } from './ObserverCloud';
 
 type SeeingSample = Pick<SiteSample, 'time' | 'jet_ms' | 'seeing'>;
 
@@ -81,10 +82,14 @@ export function SeeingStrip({ site }: { site: SeeingSample[] }) {
 const percent = (v: number) => Math.round(100 * v) + '%';
 // Older backends and saved forecasts can omit these fields.
 type ChartSample = Omit<SiteSample, 'blend'> & Partial<Pick<SiteSample, 'blend'>>;
-type ChartRecord = Omit<Nowcast, 'site' | 'best_window' | 'night'> & {
+type ChartRecord = Omit<
+  Nowcast,
+  'site' | 'best_window' | 'night' | 'site_elevation'
+> & {
   site: ChartSample[] | null;
   night?: Nowcast['night'];
   best_window?: Nowcast['best_window'];
+  site_elevation?: Nowcast['site_elevation'];
 };
 
 export function SkyChart({ record }: { record?: ChartRecord }) {
@@ -113,6 +118,8 @@ export function SkyChart({ record }: { record?: ChartRecord }) {
       </section>
     );
   const night = record.night;
+  const weights = record.site_elevation?.layer_weights;
+  const hasPartialLayers = weights && layerNames.some((layer) => weights[layer] < 1);
   const nightSamples = night
     ? site.filter(
         (s) =>
@@ -228,6 +235,7 @@ export function SkyChart({ record }: { record?: ChartRecord }) {
             Blend = wind transport at short range, model later (τ = {tau} h)
           </p>
         )}
+        {record.site_elevation && <ObserverCloud site={record.site_elevation} />}
         <div className="clear-plot">
           <div className="clear-axis">
             {[100, 75, 50, 25, 0].map((v) => (
@@ -350,12 +358,20 @@ export function SkyChart({ record }: { record?: ChartRecord }) {
         )}
         <div className="sky-plot-head">
           <h3>{coverLabel}</h3>
-          <small>0–100% per layer</small>
+          <small>{weights ? 'Raw cover per layer' : '0–100% per layer'}</small>
         </div>
-        <div className="cover-bands">
+        <div
+          className={hasPartialLayers ? 'cover-bands annotated-layers' : 'cover-bands'}
+        >
           {layerNames.map((layer, i) => (
-            <div key={layer}>
-              <span>{layer}</span>
+            <div
+              key={layer}
+              className={mostlyBelow(weights?.[layer]) ? 'below-site' : undefined}
+            >
+              <span>
+                {layer}
+                <LayerWeightTag weight={weights?.[layer]} />
+              </span>
               <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true">
                 <polygon
                   points={'0,100 ' + points((s) => cover(s)[layer]) + ' 1000,100'}

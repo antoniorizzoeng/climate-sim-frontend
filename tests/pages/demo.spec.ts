@@ -70,8 +70,9 @@ test('the Pages export runs simulations and nowcasts in the browser', async ({
   await mapKey.click();
   await expect(page.getByLabel('MapTiler API key')).toBeVisible();
   await mapKey.click();
-  await page.getByLabel('Latitude (°)').fill('28.76');
-  await page.getByLabel('Longitude (°)').fill('-17.89');
+  await page.getByLabel('Latitude (°)').fill('19.82');
+  await page.getByLabel('Longitude (°)').fill('-155.47');
+  await expect(page.getByLabel('Elevation (m)')).toHaveValue('');
   const nowcast = page.waitForResponse(
     (response) =>
       response.url().endsWith('/mock-api/nowcasts') &&
@@ -83,6 +84,12 @@ test('the Pages export runs simulations and nowcasts in the browser', async ({
     timeout: 30000,
   });
   await expect(page.getByText('Model forecast (simulated)')).toBeVisible();
+  await expect(
+    page.getByText(/Nowcast used 4,205 m · from Open-Meteo terrain/),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Counting cloud above 4,205 m · low cloud below the site ignored/),
+  ).toBeVisible();
   await expect(page.getByRole('img', { name: /cloud cover · frame 1$/ })).toHaveCount(
     3,
   );

@@ -719,17 +719,37 @@ export interface components {
        * @default 2
        */
       blend_tau_hours?: number;
+      /**
+       * @description Observer elevation above sea level in metres (1.5.0). Null → the elevation Open-Meteo reports for the site (90 m terrain model). Cloud below the observer is not counted in total/clear.
+       * @default null
+       */
+      elevation_m?: number | null;
+    };
+    SiteElevation: {
+      elevation_m: number;
+      /** @enum {string} */
+      source: 'user' | 'open-meteo';
+      /** @description Share of each layer counted as above the observer (0 = entirely below the site, 1 = entirely above), derived once per record from the layer's altitude band at the site. total uses cover × weight per layer. */
+      layer_weights: {
+        low: number;
+        mid: number;
+        high: number;
+      };
     };
     CloudFraction: number;
     SkyCover: {
+      /** @description Raw layer cover (including any part below the observer). */
       low: components['schemas']['CloudFraction'];
       mid: components['schemas']['CloudFraction'];
       high: components['schemas']['CloudFraction'];
+      /** @description Cloud above the observer (1.5.0): random overlap of cover × layer_weights. For the model series this replaces Open-Meteo's own total when any weight is below 1. Records without site_elevation keep the 1.4 meaning. */
       total: components['schemas']['CloudFraction'];
       /** @description One minus total cloud fraction. */
       clear: components['schemas']['CloudFraction'];
     };
     Nowcast: {
+      /** @description Null for records created before 1.5.0 or before the forecast was fetched. */
+      site_elevation: components['schemas']['SiteElevation'] | null;
       id: string;
       /** @enum {string} */
       status: 'fetching' | 'queued' | 'running' | 'done' | 'error';
@@ -755,9 +775,9 @@ export interface components {
             time: string;
             /** @description Bilinear site samples. Total uses random overlap across layers. */
             nowcast: components['schemas']['SkyCover'];
-            /** @description Open-Meteo site layers and its own total, linearly interpolated between UTC hours. */
+            /** @description Open-Meteo site layers, linearly interpolated between UTC hours. Total is cloud above the observer (SkyCover.total); records before 1.5.0 keep Open-Meteo's own total. */
             model: components['schemas']['SkyCover'];
-            /** @description Exponentially weighted transport and model values for each layer and for total. Clear is one minus blended total. */
+            /** @description Exponentially weighted transport and model values for each layer and for total (cloud above the observer). Clear is one minus blended total. */
             blend: components['schemas']['SkyCover'];
             /** @description Hourly 250 hPa wind speed in m/s held until the next hour. */
             jet_ms: number;
