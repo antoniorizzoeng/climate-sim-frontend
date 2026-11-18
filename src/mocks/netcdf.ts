@@ -5,6 +5,7 @@ export function netcdf(
   ny: number,
   getPlane: (i: number) => Plane,
   frames?: number,
+  nz = 1,
 ) {
   const dims: [string, number][] =
     frames === undefined
@@ -17,6 +18,7 @@ export function netcdf(
           ['y', ny],
           ['x', nx],
         ];
+  if (nz > 1) dims.splice(dims.length - 2, 0, ['z', nz]);
   const words: number[] = [0x43444605, 0, 0, 10, 0, dims.length];
   function name(value: string) {
     words.push(0, value.length);
@@ -34,7 +36,7 @@ export function netcdf(
   name('u');
   words.push(0, dims.length);
   dims.forEach((_, i) => words.push(0, i));
-  const size = nx * ny * (frames ?? 1) * 8;
+  const size = nx * ny * nz * (frames ?? 1) * 8;
   words.push(
     0,
     0,
@@ -51,7 +53,7 @@ export function netcdf(
   const chunks: BlobPart[] = [header];
   for (let k = 0; k < (frames ?? 1); k++) {
     const p = getPlane(k),
-      data = new ArrayBuffer(nx * ny * 8),
+      data = new ArrayBuffer(nx * ny * nz * 8),
       dv = new DataView(data);
     p.data.forEach((v, i) => dv.setFloat64(8 * i, v));
     chunks.push(data);

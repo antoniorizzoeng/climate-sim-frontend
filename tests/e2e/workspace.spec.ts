@@ -1,3 +1,4 @@
+import { decode } from 'fast-png';
 import { mkdir, readFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
 
@@ -145,4 +146,133 @@ test('validates the selected upload, shows disk warnings, and cancels the accept
   expect(await readFile((await (await original).path())!, 'utf8')).toBe(
     'retained original',
   );
+});
+
+test('runs a 3D preset, reads a slice, exports its projection and opens the volume', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+  await page.getByRole('button', { name: /Rising plume/ }).click();
+  await page.getByRole('button', { name: 'Conditions', exact: true }).click();
+  await expect(page.getByLabel('Layers nz')).toHaveValue('40');
+  await mkdir('artifacts', { recursive: true });
+  await page.screenshot({ path: 'artifacts/3d-conditions.png', fullPage: true });
+  const submission = page.waitForRequest(
+    (req) => req.method() === 'POST' && req.url().endsWith('/runs'),
+  );
+  await page.getByRole('button', { name: 'Run simulation' }).click();
+  expect((await submission).postDataJSON().source).toEqual({
+    kind: 'preset',
+    preset: 'gaussian_hotspot',
+    nx: 40,
+    ny: 40,
+    nz: 40,
+  });
+  await expect(
+    page.getByRole('button', { name: 'Slice', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('combobox', { name: 'Axis', exact: true }).selectOption('x');
+  await page.getByLabel('Slice index').press('ArrowLeft');
+  await page.getByLabel('Slice index').press('ArrowLeft');
+  const frame = page.getByRole('img', { name: 'Simulation frame 1', exact: true });
+  await frame.hover();
+  await expect(page.locator('.viewport-foot')).toContainText(
+    /y \d+ · z \d+ · x 18 · u/,
+  );
+  await page.screenshot({ path: 'artifacts/3d-slice.png', fullPage: true });
+  const png = page.waitForRequest((req) => req.url().includes('/frames/0.png?'));
+  await page.getByRole('button', { name: 'Frame PNG' }).click();
+  expect(new URL((await png).url()).searchParams.get('slice')).toBe('18');
+  await page.getByRole('button', { name: 'Projection', exact: true }).click();
+  await page.getByLabel('Projection method').selectOption('mean');
+  await expect(frame).toBeVisible();
+  await page.getByLabel('Animation format').selectOption('gif');
+  const animation = page.waitForRequest((req) => req.url().includes('/export.gif?'));
+  await page.getByRole('button', { name: 'Download GIF' }).click();
+  expect(
+    Object.fromEntries(new URL((await animation).url()).searchParams),
+  ).toMatchObject({ axis: 'x', projection: 'mean' });
+  await page.getByRole('button', { name: 'Volume', exact: true }).click();
+  const rendered = page.getByText('Volume frame 1', { exact: true });
+  const fallback = page.getByText(/WebGL2 is unavailable/);
+  await expect(rendered.or(fallback)).toBeVisible({ timeout: 30000 });
+  if (await rendered.isVisible()) {
+    await expect(page.getByRole('img', { name: 'Simulation volume' })).toBeVisible();
+    await page.getByLabel('Opacity', { exact: true }).press('End');
+    const canvas = page.getByRole('img', { name: 'Simulation volume' });
+    const image = decode(await canvas.screenshot());
+    // The neutral wireframe and background have no hot inferno pixels.
+    let hot = 0;
+    for (let i = 0; i < image.data.length; i += image.channels)
+      if (image.data[i] > 100 && image.data[i] > 1.25 * image.data[i + 2]) hot++;
+    expect(hot).toBeGreaterThan(30);
+    await page.screenshot({ path: 'artifacts/3d-volume.png', fullPage: true });
+  } else await page.screenshot({ path: 'artifacts/3d-fallback.png', fullPage: true });
+});
+
+test('opens the extruded smoke ring and preserves slice access without WebGL2', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const get = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (
+      this: HTMLCanvasElement,
+      kind: string,
+      ...options: unknown[]
+    ) {
+      return kind === 'webgl2' ? null : Reflect.apply(get, this, [kind, ...options]);
+    } as typeof get;
+  });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+  await page.getByRole('button', { name: /Smoke ring diffusion/ }).click();
+  await expect(page.getByLabel('Extrude to N layers')).toHaveValue('12');
+  const start = page.waitForRequest(
+    (r) => r.method() === 'POST' && r.url().endsWith('/runs'),
+  );
+  await page.getByRole('button', { name: 'Run simulation' }).click();
+  expect((await start).postDataJSON().source).toMatchObject({
+    kind: 'field',
+    replicate_z: 12,
+  });
+  await page.getByRole('button', { name: 'Volume', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('WebGL2 is unavailable');
+  await page.getByRole('button', { name: 'Slice', exact: true }).click();
+  await expect(
+    page.getByRole('img', { name: 'Simulation frame 1', exact: true }),
+  ).toBeVisible();
+});
+
+test('uses all uploaded levels, preserves time and sends a finite volume fill', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Upload file' }).click();
+  await page.getByLabel('Upload NetCDF file').setInputFiles({
+    name: 'layers.nc',
+    mimeType: 'application/x-netcdf',
+    buffer: Buffer.from('mock volume'),
+  });
+  await page.getByLabel('time index').selectOption('1');
+  await page.getByRole('button', { name: /Use as volume/ }).click();
+  await expect(page.getByLabel('level index')).toHaveCount(0);
+  await page.getByLabel('Missing-cell fill value').fill('275');
+  await page.getByRole('button', { name: 'Conditions', exact: true }).click();
+  await expect(page.getByLabel('Layers nz')).toHaveValue('2');
+  await page.getByLabel('Frames to keep').fill('3');
+  const start = page.waitForRequest(
+    (r) => r.method() === 'POST' && r.url().endsWith('/runs'),
+  );
+  await page.getByRole('button', { name: 'Run simulation' }).click();
+  const source = (await start).postDataJSON().source;
+  expect(source).toMatchObject({
+    kind: 'field',
+    volume: true,
+    index: { time: 1 },
+    fill_value: 275,
+  });
+  expect(source).not.toHaveProperty('replicate_z');
+  await expect(page.getByLabel('Slice index')).toHaveAttribute('max', '1');
 });

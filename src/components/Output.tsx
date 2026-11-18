@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Download, Film, ImageDown, Database } from 'lucide-react';
 import { api, checked, download, frameBlob, message, type Colors } from '@/lib/api';
 import { DecimalInput } from './DecimalInput';
-import type { ColorMap, Config, Run } from '@/lib/model';
+import type { ColorMap, Config, Run, FrameView } from '@/lib/model';
 import { cleanRange } from '@/lib/model';
 export function Output({
+  view,
+  volume,
   run,
   n,
   colors,
@@ -12,6 +14,8 @@ export function Output({
   config,
 }: {
   run: Run;
+  view?: FrameView;
+  volume?: boolean;
   n: number;
   colors: Colors;
   change: (v: Colors) => void;
@@ -42,7 +46,7 @@ export function Output({
     try {
       const path = { runId: run.id };
       if (type === 'png') {
-        const blob = await frameBlob(run.id, n, colors, true, ctrl.signal);
+        const blob = await frameBlob(run.id, n, colors, true, ctrl.signal, view);
         if (!ctrl.signal.aborted) download(blob, `frame-${n}.png`);
       } else if (type === 'result') {
         const blob = checked(
@@ -56,7 +60,7 @@ export function Output({
       } else {
         while (!ctrl.signal.aborted) {
           const r = await api.GET('/runs/{runId}/export.{format}', {
-            params: { path: { ...path, format }, query: { ...colors, fps } },
+            params: { path: { ...path, format }, query: { ...colors, ...view, fps } },
             parseAs: 'blob',
             signal: ctrl.signal,
           });
@@ -132,6 +136,13 @@ export function Output({
         <Download size={15} />
         Export simulation
       </div>
+      {volume && view && (
+        <p className="hint">
+          {view.axis?.toUpperCase()}{' '}
+          {view.projection ? view.projection + ' projection' : 'slice ' + view.slice}{' '}
+          for PNG and animation exports.
+        </p>
+      )}
       <div className="input-grid">
         <label>
           Format

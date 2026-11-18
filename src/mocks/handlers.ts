@@ -7,13 +7,16 @@ import {
   pixels,
   type ColorMap,
   type Plane,
+  type FrameView,
+  type Run,
   type RequestBody,
 } from '@/lib/model';
 import {
   config,
   createField,
   fields,
-  framePlane,
+  projectedFrame,
+  frameVolume,
   runs,
   selectedPlane,
   start,
@@ -121,6 +124,23 @@ function planeOutput(
     },
   });
 }
+function readView(q: URLSearchParams, run: Run): FrameView | null {
+  const axis = q.get('axis') ?? 'z',
+    projection = q.get('projection') ?? 'none';
+  if (
+    (axis !== 'x' && axis !== 'y' && axis !== 'z') ||
+    (projection !== 'none' && projection !== 'max' && projection !== 'mean')
+  )
+    return null;
+  if (run.resolved.nz === 1) return {};
+  if (projection !== 'none') return { axis, projection };
+  const slice = q.has('slice')
+    ? Number(q.get('slice'))
+    : Math.floor(run.resolved[`n${axis}`] / 2);
+  return Number.isInteger(slice) && slice >= 0 && slice < run.resolved[`n${axis}`]
+    ? { axis, slice }
+    : null;
+}
 const makeRun = (body: RequestBody) => {
   if (body.source.kind === 'field' && !fields.has(body.source.field_id))
     return missing();
@@ -145,6 +165,9 @@ function isRequest(body: unknown): body is RequestBody {
   const numeric = [
     'dx',
     'dy',
+    'dz',
+    'Dz',
+    'vz',
     'D',
     'vx',
     'vy',
@@ -163,7 +186,7 @@ function isRequest(body: unknown): body is RequestBody {
   if (numeric.some((k) => k in body && !Number.isFinite(body[k]))) return false;
   if (
     body.bc !== undefined &&
-    (!objectWithKeys(body.bc, ['left', 'right', 'top', 'bottom']) ||
+    (!objectWithKeys(body.bc, ['left', 'right', 'top', 'bottom', 'front', 'back']) ||
       Object.values(body.bc).some(
         (v) => !['dirichlet', 'neumann', 'periodic'].includes(String(v)),
       ))
@@ -171,18 +194,32 @@ function isRequest(body: unknown): body is RequestBody {
     return false;
   const source = body.source;
   if (
-    objectWithKeys(source, ['kind', 'preset', 'nx', 'ny']) &&
+    objectWithKeys(source, ['kind', 'preset', 'nx', 'ny', 'nz']) &&
     source.kind === 'preset'
   )
     return (
+      (source.nz === undefined || Number.isInteger(source.nz)) &&
       Number.isInteger(source.nx) &&
       Number.isInteger(source.ny) &&
       config.presets.some((p) => p === source.preset)
     );
   if (
-    !objectWithKeys(source, ['kind', 'field_id', 'var', 'index', 'fill_value']) ||
+    !objectWithKeys(source, [
+      'kind',
+      'field_id',
+      'var',
+      'index',
+      'fill_value',
+      'volume',
+      'replicate_z',
+    ]) ||
     source.kind !== 'field' ||
     typeof source.field_id !== 'string'
+  )
+    return false;
+  if (
+    (source.volume !== undefined && typeof source.volume !== 'boolean') ||
+    (source.replicate_z !== undefined && !Number.isInteger(source.replicate_z))
   )
     return false;
   if (source.var !== undefined && typeof source.var !== 'string') return false;
@@ -344,20 +381,38 @@ export const handlers = [
     const r = runs.get(String(params.id));
     return r ? makeRun(r.request) : missing();
   }),
-  ...['/frames/:n.png', '/frames/:n/values'].map((path, index) =>
+  ...['/frames/:n.png', '/frames/:n/values', '/frames/:n/volume'].map((path, index) =>
     http.get(url('/runs/:id' + path), ({ params, request }) => {
       tick();
       const r = runs.get(String(params.id)),
         n = Number(params.n);
-      if (!r || r.status === 'expired' || n < 0 || n >= r.resolved.expected_frames)
+      if (
+        !r ||
+        r.status === 'expired' ||
+        !Number.isInteger(n) ||
+        n < 0 ||
+        n >= r.resolved.expected_frames
+      )
         return missing();
       if (n >= r.frames) return conflict('Frame not written.');
-      return planeOutput(
-        framePlane(r, n),
-        new URL(request.url).searchParams,
-        index === 0,
-        r.display_range,
-      );
+      const q = new URL(request.url).searchParams;
+      if (index === 2) {
+        const side = Number(q.get('max_side') ?? 64);
+        if (!Number.isInteger(side) || side < 1 || side > 128)
+          return invalid('Invalid volume sample size.');
+        const v = frameVolume(r, n, side);
+        return new HttpResponse(encodePlane(v.data), {
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'X-Nx': String(v.nx),
+            'X-Ny': String(v.ny),
+            'X-Nz': String(v.nz),
+          },
+        });
+      }
+      const view = readView(q, r);
+      if (!view) return invalid('Invalid frame view.');
+      return planeOutput(projectedFrame(r, n, view), q, index === 0, r.display_range);
     }),
   ),
   http.get(url('/runs/:id/result.nc'), ({ params }) => {
@@ -371,7 +426,13 @@ export const handlers = [
         { status: 507 },
       );
     return new HttpResponse(
-      netcdf(r.resolved.nx, r.resolved.ny, (i) => framePlane(r, i), r.frames),
+      netcdf(
+        r.resolved.nx,
+        r.resolved.ny,
+        (i) => frameVolume(r, i, Math.max(r.resolved.nx, r.resolved.ny, r.resolved.nz)),
+        r.frames,
+        r.resolved.nz,
+      ),
     );
   }),
   http.get(url('/runs/:id/export.:format'), async ({ params, request }) => {
@@ -401,6 +462,8 @@ export const handlers = [
     const problem = invalidDisplay(q);
     if (problem) return problem;
     const maxSide = Number(q.get('max_side') ?? 0);
+    const view = readView(q, r);
+    if (!view) return invalid('Invalid export view.');
     const key = request.url;
     let job = jobs.get(key);
     if (!job) {
@@ -409,9 +472,14 @@ export const handlers = [
       jobs.set(key, pending);
       void import('./animation')
         .then((m) =>
-          m.renderAnimation(r, format, { fps, colormap, min, max, maxSide }, (v) => {
-            pending.progress = v;
-          }),
+          m.renderAnimation(
+            r,
+            format,
+            { fps, colormap, min, max, maxSide, view },
+            (v) => {
+              pending.progress = v;
+            },
+          ),
         )
         .then((blob) => {
           pending.file = blob;

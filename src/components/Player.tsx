@@ -1,6 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, checked, decodeGrid, message, type Colors } from '@/lib/api';
-import { cellAt, numberText, pixels, type Plane, type Run } from '@/lib/model';
+import {
+  cellAt,
+  numberText,
+  pixels,
+  type FrameView,
+  type Plane,
+  type Run,
+} from '@/lib/model';
 import { MeanChart, chartInterval, type MeanSample } from './MeanChart';
 import { Viewport } from './Viewport';
 
@@ -17,9 +24,10 @@ async function loadFrame(
   n: number,
   stride: number,
   signal: AbortSignal,
+  view: FrameView,
 ): Promise<Frame> {
   const response = await api.GET('/runs/{runId}/frames/{n}/values', {
-    params: { path: { runId: id, n }, query: { stride } },
+    params: { path: { runId: id, n }, query: { stride, ...view } },
     parseAs: 'arrayBuffer',
     signal,
   });
@@ -86,7 +94,9 @@ function FrameCanvas({
 }
 
 // The workspace keys this component by run ID, so cached planes and means belong to one run.
+const flatView: FrameView = {};
 export function Player({
+  view = flatView,
   run,
   n,
   colors,
@@ -97,6 +107,7 @@ export function Player({
   layerLabel,
 }: {
   run: Run;
+  view?: FrameView;
   layerLabel?: string;
   n: number;
   colors: Colors;
@@ -113,10 +124,13 @@ export function Player({
   const [samples, setSamples] = useState(new Map<number, MeanSample>());
   const [error, setError] = useState(''),
     [attempt, retry] = useState(0);
-  const stride = Math.max(
-    1,
-    Math.ceil(Math.max(run.resolved.nx, run.resolved.ny) / 512),
-  );
+  const { axis, slice, projection } = view;
+  const { nx, ny, nz } = run.resolved;
+  const width = axis === 'x' ? ny : nx,
+    height = axis && axis !== 'z' ? nz : ny;
+  const horizontal = axis === 'x' ? 'y' : 'x',
+    vertical = axis && axis !== 'z' ? 'z' : 'y';
+  const stride = Math.max(1, Math.ceil(Math.max(width, height) / 512));
   const [min, max] = range,
     available = n < run.frames && run.status !== 'expired';
   const interval = chartInterval(run.resolved.expected_frames);
@@ -144,7 +158,11 @@ export function Player({
       let entry = entries.get(i);
       if (!entry) {
         const controller = new AbortController();
-        const task = loadFrame(run.id, i, stride, controller.signal);
+        const task = loadFrame(run.id, i, stride, controller.signal, {
+          axis,
+          slice,
+          projection,
+        });
         entry = { controller, task };
         entries.set(i, entry);
       }
@@ -175,6 +193,9 @@ export function Player({
       active = false;
     };
   }, [
+    axis,
+    slice,
+    projection,
     available,
     run.id,
     n,
@@ -205,10 +226,13 @@ export function Player({
       e.currentTarget.getBoundingClientRect(),
       e.clientX,
       e.clientY,
-      run.resolved.nx,
-      run.resolved.ny,
+      width,
+      height,
     );
-    const display = (v: number) => onRead(`x ${i} · y ${j} · u ${numberText(v)}`);
+    const display = (v: number) =>
+      onRead(
+        `${horizontal} ${i} · ${vertical} ${j}${slice !== undefined ? ` · ${axis} ${slice}` : ''} · u ${numberText(v)}`,
+      );
     stopHover();
     if (i % stride === 0 && j % stride === 0) {
       display(visible.plane.data[(j / stride) * visible.plane.nx + i / stride]);
@@ -221,7 +245,7 @@ export function Player({
         const r = await api.GET('/runs/{runId}/frames/{n}/values', {
           params: {
             path: { runId: run.id, n: visible.index },
-            query: { i0: i, j0: j, w: 1, h: 1 },
+            query: { ...view, i0: i, j0: j, w: 1, h: 1 },
           },
           parseAs: 'arrayBuffer',
           signal: controller.signal,
@@ -269,12 +293,12 @@ export function Player({
     );
   return (
     <Viewport
-      nx={run.resolved.nx}
-      ny={run.resolved.ny}
+      nx={width}
+      ny={height}
       map={colors.colormap}
       range={range}
       mode="Run output"
-      readout={readout}
+      readout={readout || `${horizontal}, ${vertical} · cell coordinates`}
       controls={
         <div className="frame-options">
           <button aria-pressed={smooth} onClick={() => setSmooth(!smooth)}>
@@ -304,6 +328,7 @@ export function Player({
       }
       chart={
         <MeanChart
+          fieldLabel={projection ? 'Projection' : axis ? 'Slice' : 'Field'}
           means={samples}
           current={visible}
           stride={stride}

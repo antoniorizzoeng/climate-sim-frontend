@@ -9,11 +9,13 @@ export const MeanChart = memo(function MeanChart({
   current,
   stride,
   last,
+  fieldLabel = 'Field',
 }: {
   means: Map<number, MeanSample>;
   current?: MeanSample;
   stride: number;
   last: number;
+  fieldLabel?: string;
 }) {
   const samples = Array.from(means.values()).sort((a, b) => a.index - b.index);
   const currentMean =
@@ -40,7 +42,8 @@ export const MeanChart = memo(function MeanChart({
       );
     })
     .join(' ');
-  const title = stride > 1 ? 'Sampled field mean' : 'Field mean';
+  const title =
+    (stride > 1 ? 'Sampled ' + fieldLabel.toLowerCase() : fieldLabel) + ' mean';
   return (
     <div className="mean-chart">
       <span>
