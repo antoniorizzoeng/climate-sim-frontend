@@ -41,6 +41,34 @@ Vitest covers component and model behaviour. Playwright exercises the workspace 
 
 Pull requests should include or update relevant tests.
 
+### Full-stack Playwright
+
+Run the full-stack suite from the frontend repository with Node.js 22, Docker
+Compose v2.24.4 or newer, and the Chromium system libraries installed.
+
+```sh
+npm ci
+npx playwright install --only-shell chromium
+npm run test:e2e:fullstack
+```
+
+The command builds the production frontend and the backend from its `main`
+branch, with the solver revision set in `docker-compose.e2e.yml`. It starts a
+dedicated Compose project and waits for both health checks. Keep host ports
+3200 and 8300 free while it runs. The runner removes its containers and scratch
+volume with `docker compose down -v`, including after a test failure.
+
+Run a single test with `npm run test:e2e:fullstack -- -g 'NetCDF'`. For a local
+Sky run that calls Open-Meteo from the backend, use
+`E2E_NETWORK=1 npm run test:e2e:fullstack -- -g 'Sky'`. Sky is skipped in the
+pull request and nightly workflow. The mocked Sky test remains part of
+`npm run test:e2e`.
+
+Build output goes to `artifacts/e2e-fullstack/compose-up.log`. On failure, see
+the container logs and service status in that directory, and Playwright
+traces and screenshots in its `playwright/` subdirectory. The full-stack
+workflow uploads that directory on failure.
+
 ---
 
 ## Pull Request Checklist

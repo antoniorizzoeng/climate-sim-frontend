@@ -1,0 +1,25 @@
+name: climate-sim-e2e
+services:
+  frontend:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: http://127.0.0.1:8300
+    ports: !override
+      - '127.0.0.1:3200:3000'
+    healthcheck:
+      interval: 2s
+  backend:
+    build:
+      args:
+        # Build the solver at a specific commit so Docker caches it per revision;
+        # scripts/test-e2e-fullstack.sh resolves the current engine main.
+        ENGINE_REF: ${ENGINE_REF:-main}
+    ports: !override
+      - '127.0.0.1:8300:8000'
+    environment:
+      CORS_ORIGINS: http://127.0.0.1:3200
+    healthcheck:
+      interval: 2s
+volumes:
+  simulations:
+    name: ${COMPOSE_PROJECT_NAME}_scratch
