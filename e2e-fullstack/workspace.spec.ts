@@ -1,7 +1,7 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Request } from '@playwright/test';
 import { decode } from 'fast-png';
 import { readFile } from 'node:fs/promises';
-import type { Field, Run } from '../src/lib/model';
+import type { Field, RequestBody, Run } from '../src/lib/model';
 import { classicNetCDF, missingCell, nx, ny } from './netcdf';
 
 function frame(page: Page, number: number) {
@@ -12,8 +12,15 @@ async function setRunLength(page: Page, steps: number, frames: number) {
   await page.getByRole('button', { name: 'Conditions', exact: true }).click();
   await page.getByLabel('Steps', { exact: true }).fill(String(steps));
   await page.getByLabel('Frames to keep').fill(String(frames));
-  await page.getByText('Advanced conditions', { exact: true }).click();
   await expect(page.getByLabel('MPI processes')).toHaveCount(0);
+}
+
+function isDrawnValidation(request: Request) {
+  return (
+    request.method() === 'POST' &&
+    new URL(request.url()).pathname === '/runs/validate' &&
+    (request.postDataJSON() as RequestBody).source.kind === 'field'
+  );
 }
 
 async function startRun(page: Page) {
@@ -42,7 +49,7 @@ test('the API accepts the client-clamped 2D diffusion step', async ({ page }) =>
   await page.getByLabel('Velocity vy').fill('0');
   await page.getByLabel('Time step dt').fill('1');
   const [response] = await Promise.all([
-    page.waitForResponse('**/runs/validate'),
+    page.waitForResponse((response) => isDrawnValidation(response.request())),
     page.getByRole('button', { name: 'Run simulation' }).click(),
   ]);
   expect(response.ok()).toBe(true);
@@ -57,10 +64,10 @@ test('a pending simulation launch keeps Sky selected and starts the run', async 
 
   const gate = Promise.withResolvers<void>();
   await page.route('**/runs/validate', async (route) => {
-    await gate.promise;
+    if (isDrawnValidation(route.request())) await gate.promise;
     await route.continue();
   });
-  const validation = page.waitForRequest('**/runs/validate');
+  const validation = page.waitForRequest(isDrawnValidation);
   const submission = startRun(page);
   await validation;
   const sky = page.getByRole('button', { name: 'Sky', exact: true });

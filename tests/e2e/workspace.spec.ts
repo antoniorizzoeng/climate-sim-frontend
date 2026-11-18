@@ -29,7 +29,10 @@ test('loads the wrap-around world and keeps opposite edges paired', async ({
   await right.selectOption('periodic');
   await expect(left).toHaveValue('periodic');
   const validation = page.waitForRequest(
-    (req) => req.method() === 'POST' && req.url().endsWith('/runs/validate'),
+    (req) =>
+      req.method() === 'POST' &&
+      req.url().endsWith('/runs/validate') &&
+      req.postDataJSON().source.kind === 'field',
   );
   await page.getByRole('button', { name: 'Run simulation' }).click();
   expect((await validation).postDataJSON()).toMatchObject({
@@ -291,24 +294,28 @@ test('converts uploaded layers to one selected plane and keeps its coordinate in
   await page.getByRole('button', { name: /Use as volume/ }).click();
   await page.getByRole('button', { name: '3D preview', exact: true }).click();
   await expect(page.getByRole('img', { name: 'Simulation volume' })).toBeVisible();
-  await page.getByRole('button', { name: 'Switch to 2D solver' }).click();
+  await page.getByRole('button', { name: 'Conditions', exact: true }).click();
+  const two = page
+    .getByRole('group', { name: 'Simulation dimensions' })
+    .getByRole('button', { name: '2D' });
+  await two.click();
   const dialog = page.getByRole('dialog', { name: 'Keep one slice in 2D' });
   await expect(dialog).toBeVisible();
   for (const value of ['top', 'middle', 'bottom', 'custom'])
     await dialog.getByLabel('Slice to keep').selectOption(value);
   await dialog.getByLabel('Layer z').fill('0');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
-  await expect(page.getByRole('button', { name: 'Switch to 2D solver' })).toBeVisible();
-  await page.getByRole('button', { name: 'Switch to 2D solver' }).click();
+  await expect(two).toBeVisible();
+  await two.click();
   await dialog.getByLabel('Slice to keep').selectOption('bottom');
   await dialog.getByRole('button', { name: 'Keep slice' }).click();
+  await page.getByRole('button', { name: 'Initial field', exact: true }).click();
   await expect(page.getByLabel('level index')).toHaveValue('1');
   await expect(page.getByLabel('time index')).toHaveValue('2');
   await page.getByRole('button', { name: 'Conditions', exact: true }).click();
   await expect(
     page.getByText('Uploaded coordinate spacing is approximate.'),
   ).toBeVisible();
-  await page.getByText('Advanced conditions').click();
   await expect(page.getByLabel('Grid spacing dx (km)')).toHaveValue('1.5');
   await expect(page.getByLabel('Grid spacing dy (km)')).toHaveValue('2');
   await page.getByLabel('Frames to keep').fill('3');
@@ -333,7 +340,7 @@ for (const width of [390, 1440])
       await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
       await page.goto('/');
-      await expect(page.getByText('API v1.5.0')).toBeVisible();
+      await expect(page.getByText('API v1.6.0')).toBeVisible();
       await page.getByRole('button', { name: /Smoke ring diffusion/ }).click();
       const columns = await page.getByLabel('Columns').boundingBox();
       const source = await page
@@ -352,9 +359,15 @@ for (const width of [390, 1440])
       await summary.click();
       await expect.poll(chevron).not.toEqual(closed);
       await expect(page.getByText(/Color shows the amount of tracer/)).toBeVisible();
-      await page.getByRole('button', { name: 'Switch to 2D solver' }).click();
+      await expect(page.locator('.solver-tag')).toHaveCount(0);
+      await page.getByRole('button', { name: 'Conditions', exact: true }).click();
+      const dimensions = page.getByRole('group', { name: 'Simulation dimensions' });
+      await dimensions.getByRole('button', { name: '2D' }).click();
+      await expect(page.getByLabel('Layers nz')).toHaveCount(0);
       await expect(page.getByRole('dialog')).toHaveCount(0);
-      await page.getByRole('button', { name: 'Switch to 3D solver' }).click();
+      await dimensions.getByRole('button', { name: '3D' }).click();
+      await expect(page.getByLabel('Layers nz')).toHaveValue('16');
+      await page.getByRole('button', { name: 'Initial field', exact: true }).click();
       await page.getByLabel('Extrude to N layers').fill('12');
       await page.evaluate(() => window.scrollTo(0, 0));
       expect(
@@ -369,7 +382,7 @@ for (const width of [390, 1440])
       for (const name of ['History', 'Sky']) {
         await page.getByRole('button', { name, exact: true }).click();
         await expect(
-          page.getByRole('button', { name: /Switch to .* solver/ }),
+          page.getByRole('group', { name: 'Simulation dimensions' }),
         ).toHaveCount(0);
       }
     });

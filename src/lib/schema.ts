@@ -649,9 +649,14 @@ export interface components {
       dt_max: number | null;
       /** @description ≈ 8·nx·ny·nz·expected_frames + header */
       estimated_output_bytes: number;
+      /** @description Peak RAM the engine needs for this run across all ranks, from a measured model (about 28 bytes per cell plus a fixed per-run overhead, see backend docs). Independent of frames. */
+      estimated_memory_bytes: number;
+      /** @description RAM the engine may use on this server when no other run is active: the container/cgroup limit or the machine's total memory, minus a reserve for the backend itself. A run whose estimated_memory_bytes exceeds this is rejected (validation error on loc [body, source], with resolved still returned so clients can show both numbers). */
+      memory_capacity_bytes: number;
     };
     RunValidation: {
       ok: boolean;
+      /** @description Blocking problems. A run too large for memory is reported here (loc [body, source]) with a message like "Needs about 28.6 GB of memory; this server can give the engine 6.8 GB. Use fewer layers or a smaller grid." resolved is still filled in for that error. */
       errors: components['schemas']['ValidationIssue'][];
       /** @description Non-blocking, e.g. estimated output larger than free disk space, very long expected run. */
       warnings: string[];
@@ -687,7 +692,7 @@ export interface components {
       elapsed_seconds?: number | null;
       /** @description Fixed default colour range for the whole run, from frame 0 (widened to include 0 when any edge is dirichlet). Advection–diffusion with these schemes cannot leave this range, so colours never shift during playback. A constant field renders as the colormap midpoint. Slices and projections of a nonuniform volume use the run range even when every pixel in the view has the same value. */
       display_range: number[] | null;
-      /** @description Error text when status is error */
+      /** @description Error text when status is error. The first line is a short human-readable reason (e.g. "The engine ran out of memory and was stopped by the system."); any following lines are the engine's raw output, for a collapsible details view. */
       message: string | null;
     };
     NowcastParams: {

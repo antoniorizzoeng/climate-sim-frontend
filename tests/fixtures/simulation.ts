@@ -28,6 +28,8 @@ export function simulation(overrides: Partial<Run> = {}): Run {
       processes: 1,
       dt_max: null,
       estimated_output_bytes: 1024,
+      estimated_memory_bytes: 83891456,
+      memory_capacity_bytes: 6.8e9,
     },
     step: 10,
     time: 2.5,

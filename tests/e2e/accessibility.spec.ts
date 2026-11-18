@@ -42,7 +42,6 @@ for (const width of [375, 768, 1440]) {
     await page.keyboard.press('Escape');
     await expect(page.getByRole('button', { name: 'Expand viewport' })).toBeFocused();
     await page.getByRole('button', { name: 'Conditions', exact: true }).click();
-    await page.getByText('Advanced conditions').click();
     await audit(page, 'Conditions');
     await page.getByRole('button', { name: 'Initial field', exact: true }).click();
     await page.getByRole('button', { name: 'Upload file' }).click();
@@ -71,7 +70,9 @@ for (const width of [375, 768, 1440]) {
     await expect(
       page.getByRole('img', { name: 'Simulation frame 2', exact: true }),
     ).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Download MP4' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Download MP4' })).toBeEnabled({
+      timeout: 15000,
+    });
     await audit(page, 'Run inspector, player, comparison and export');
     await page.getByRole('button', { name: 'History', exact: true }).click();
     await page

@@ -63,14 +63,20 @@ export function writeHistoryQuery(query: HistoryQuery, tab: 'runs' | 'fields') {
     window.history.replaceState(window.history.state, '', url);
 }
 
-export function bytes(value: number) {
-  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+export function bytes(value: number, decimal = false) {
+  const base = decimal ? 1000 : 1024;
+  const units = decimal
+    ? ['B', 'kB', 'MB', 'GB', 'TB', 'PB']
+    : ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
   const i = Math.min(
     units.length - 1,
-    Math.floor(Math.log(Math.max(1, value)) / Math.log(1024)),
+    Math.floor(Math.log(Math.max(1, value)) / Math.log(base)),
   );
   return (
-    (value / 1024 ** i).toLocaleString(undefined, { maximumFractionDigits: 1 }) +
+    (value / base ** i).toLocaleString(undefined, {
+      minimumFractionDigits: decimal && i > 0 ? 1 : 0,
+      maximumFractionDigits: 1,
+    }) +
     ' ' +
     units[i]
   );

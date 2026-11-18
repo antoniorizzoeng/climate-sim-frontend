@@ -1,3 +1,4 @@
+import { bytes } from '@/lib/history';
 import type { components } from '@/lib/schema';
 import {
   dtMax,
@@ -244,31 +245,40 @@ export function validate(body: RequestBody): S['RunValidation'] {
     !fits(processes)
   )
     add('processes', 'Rank grid must fit the field and CPU count.');
+  if (errors.length) return { ok: false, errors, warnings, resolved: null };
   const out_every =
       body.out_every ?? Math.ceil(body.steps / ((body.frames ?? 101) - 1)),
     expected_frames = 1 + Math.ceil(body.steps / out_every),
-    estimated_output_bytes = 8 * nx * ny * nz * expected_frames + 1024;
+    cells = nx * ny * nz,
+    estimated_output_bytes = 8 * cells * expected_frames + 1024,
+    estimated_memory_bytes = 28 * cells + 64 * 1024 ** 2 + 16 * 1024 ** 2 * processes,
+    memory_capacity_bytes = 6.8e9;
   if (estimated_output_bytes > config.disk_free_bytes)
     warnings.push('Estimated output exceeds available disk space.');
+  if (estimated_memory_bytes > memory_capacity_bytes)
+    add(
+      'source',
+      `Needs about ${bytes(estimated_memory_bytes, true)} of memory; this server can give the engine ${bytes(memory_capacity_bytes, true)}. Use fewer layers or a smaller grid.`,
+    );
   return {
     ok: !errors.length,
     errors,
     warnings,
-    resolved: errors.length
-      ? null
-      : {
-          nx,
-          ny,
-          nz,
-          dz: body.dz ?? 1,
-          steps: body.steps,
-          dt: body.dt,
-          dt_max,
-          processes,
-          out_every,
-          expected_frames,
-          estimated_output_bytes,
-        },
+    resolved: {
+      nx,
+      ny,
+      nz,
+      dz: body.dz ?? 1,
+      steps: body.steps,
+      dt: body.dt,
+      dt_max,
+      processes,
+      out_every,
+      expected_frames,
+      estimated_output_bytes,
+      estimated_memory_bytes,
+      memory_capacity_bytes,
+    },
   };
 }
 export function tick(now = Date.now()) {
