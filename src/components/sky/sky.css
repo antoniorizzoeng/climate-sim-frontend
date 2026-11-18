@@ -302,31 +302,6 @@
   background: #3c262f;
   border-color: #825565;
 }
-.wind-tip {
-  position: absolute;
-  bottom: calc(100% + 3px);
-  left: 0;
-  z-index: 2;
-  display: none;
-  min-width: 105px;
-  padding: 6px 8px;
-  background: #15171d;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  color: var(--text);
-}
-.seeing-chip:nth-last-child(-n + 2) .wind-tip {
-  left: auto;
-  right: 0;
-}
-.seeing-chip:first-child .wind-tip {
-  left: 0;
-  right: auto;
-}
-.seeing-chip:hover .wind-tip,
-.seeing-chip:focus .wind-tip {
-  display: block;
-}
 .sky-values {
   margin-top: 16px;
 }

@@ -2,12 +2,19 @@ import { useEffect, useState } from 'react';
 import { Activity, BookOpen, Clock3, RefreshCw, Trash2 } from 'lucide-react';
 import { api, checked, message } from '@/lib/api';
 import type { Run } from '@/lib/model';
-import { layerNames, localStamp, type Nowcast, type NowcastParams } from '@/lib/sky';
+import {
+  loadMapKey,
+  layerNames,
+  localStamp,
+  type Nowcast,
+  type NowcastParams,
+} from '@/lib/sky';
 import { SitePicker } from './SitePicker';
 import { SkyChart } from './SkyChart';
 import { SkyGrid } from './SkyGrid';
 import { LayerMovies } from './LayerMovies';
 import './sky.css';
+import './forecast.css';
 
 const stages = ['fetching', 'queued', 'running', 'done'] as const;
 function terminal(record: Nowcast) {
@@ -68,6 +75,7 @@ export function Sky({ online }: { online: boolean }) {
     [pollError, setPollError] = useState('');
   const [listVersion, reloadList] = useState(0),
     [attempt, retry] = useState(0);
+  const [mapKey, setMapKey] = useState(loadMapKey);
   const id = selected?.id;
   useEffect(() => {
     if (!online) return;
@@ -154,7 +162,11 @@ export function Sky({ online }: { online: boolean }) {
       select(record);
       reloadList((v) => v + 1);
     } catch (e) {
-      setActionError(message(e));
+      setActionError(
+        /no astronomical (night|darkness)/i.test(message(e))
+          ? 'No astronomical darkness at this site in the next 24 hours. Choose Next hours or another site.'
+          : message(e),
+      );
     } finally {
       setBusy(false);
     }
@@ -267,7 +279,12 @@ export function Sky({ online }: { online: boolean }) {
   return (
     <div className="sky-layout">
       <div className="sky-picker-slot">
-        <SitePicker busy={busy || !online} run={submit} />
+        <SitePicker
+          mapKey={mapKey}
+          onKey={setMapKey}
+          busy={busy || !online}
+          run={submit}
+        />
       </div>
       <div className="sky-results">
         {actionError && (
@@ -277,7 +294,14 @@ export function Sky({ online }: { online: boolean }) {
         )}
         {!selected?.site && statusPanel}
         <SkyChart record={selected} />
-        {selected && <LayerMovies key={selected.id} record={selected} runs={runs} />}
+        {selected && (
+          <LayerMovies
+            mapKey={mapKey}
+            key={JSON.stringify([selected.id, mapKey])}
+            record={selected}
+            runs={runs}
+          />
+        )}
         {selected?.site && statusPanel}
         <Method record={selected} />
       </div>
@@ -310,7 +334,10 @@ export function Sky({ online }: { online: boolean }) {
                     </strong>
                     <span>{item.status}</span>
                     <small>
-                      {localStamp(item.created_at)} · {item.params.hours ?? 6} h
+                      {localStamp(item.created_at)} ·{' '}
+                      {item.params.window === 'tonight'
+                        ? 'Tonight'
+                        : (item.params.hours ?? 6) + ' h'}
                     </small>
                   </button>
                 </li>

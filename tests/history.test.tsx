@@ -4,11 +4,13 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { History } from '@/components/History';
 import { baseUrl } from '@/lib/api';
-import { field, simulation } from './fixtures/simulation';
+import { field, simulation, storage } from './fixtures/simulation';
 
-const recent = simulation({ id: 'newer-run' });
+const recent = simulation({ id: 'newer-run', name: 'Recent simulation' });
 const expired = simulation({ id: 'older-run', status: 'expired' });
-const server = setupServer();
+const server = setupServer(
+  http.get(baseUrl + '/storage', () => HttpResponse.json(storage)),
+);
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
   server.resetHandlers();
@@ -33,8 +35,13 @@ it('paginates with the next cursor, opens and reruns an expired record, and refr
       queries.push(cursor);
       return HttpResponse.json(
         cursor
-          ? { items: [expired], next_cursor: null }
-          : { items: [recent], next_cursor: deleted ? null : recent.id },
+          ? { items: [expired], total: 1, total_bytes: 1024, next_cursor: null }
+          : {
+              items: [recent],
+              total: 1,
+              total_bytes: 1024,
+              next_cursor: deleted ? null : recent.id,
+            },
       );
     }),
     http.post(baseUrl + '/runs/' + expired.id + '/rerun', () =>
@@ -48,14 +55,14 @@ it('paginates with the next cursor, opens and reruns an expired record, and refr
   const actions = history();
   const previous = screen.getByRole('button', { name: 'Previous' });
   const next = screen.getByRole('button', { name: 'Next' });
-  await screen.findByText('Run newer-ru');
+  await screen.findByText('Recent simulation');
   expect(previous).toBeDisabled();
   fireEvent.click(next);
   await screen.findByText('expired');
   expect(screen.getByText(/^.*· Expires /)).toBeVisible();
   expect(next).toBeDisabled();
   fireEvent.click(previous);
-  await screen.findByText('Run newer-ru');
+  await screen.findByText('Recent simulation');
   fireEvent.click(next);
   await screen.findByText('expired');
   fireEvent.click(screen.getByRole('button', { name: 'View' }));
@@ -70,7 +77,7 @@ it('paginates with the next cursor, opens and reruns an expired record, and refr
   expect(deleted).toBe(false);
   fireEvent.click(screen.getByRole('button', { name: 'Delete ' + expired.id }));
   fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
-  await screen.findByText('Run newer-ru');
+  await screen.findByText('Recent simulation');
   expect(actions.onDelete).toHaveBeenCalledExactlyOnceWith(expired.id);
   expect(screen.getByText('Page 1')).toBeVisible();
   expect(next).toBeDisabled();
@@ -84,7 +91,9 @@ it('retries loading, opens a field and surfaces a delete conflict before success
     .mockReturnValueOnce(
       HttpResponse.json({ detail: 'History temporarily unavailable' }, { status: 503 }),
     )
-    .mockImplementation(() => HttpResponse.json({ items: [], next_cursor: null }));
+    .mockImplementation(() =>
+      HttpResponse.json({ items: [], total: 0, total_bytes: 0, next_cursor: null }),
+    );
   const del = vi
     .fn()
     .mockReturnValueOnce(
@@ -97,7 +106,12 @@ it('retries loading, opens a field and surfaces a delete conflict before success
   server.use(
     http.get(baseUrl + '/runs', listing),
     http.get(baseUrl + '/fields', () =>
-      HttpResponse.json({ items: available ? [field] : [], next_cursor: null }),
+      HttpResponse.json({
+        items: available ? [field] : [],
+        total: 1,
+        total_bytes: 1024,
+        next_cursor: null,
+      }),
     ),
     http.delete(baseUrl + '/fields/' + field.id, del),
   );
@@ -141,11 +155,13 @@ it('downloads the original of an archived drawn field with a NetCDF extension', 
   });
   server.use(
     http.get(baseUrl + '/runs', () =>
-      HttpResponse.json({ items: [], next_cursor: null }),
+      HttpResponse.json({ items: [], total: 0, total_bytes: 0, next_cursor: null }),
     ),
     http.get(baseUrl + '/fields', () =>
       HttpResponse.json({
         items: [{ ...field, state: 'archived' }],
+        total: 1,
+        total_bytes: 1024,
         next_cursor: null,
       }),
     ),
@@ -165,3 +181,132 @@ it('downloads the original of an archived drawn field with a NetCDF extension', 
     timeout: 2000,
   });
 });
+
+it('debounces server filters together, preserves the URL and resets pagination', async () => {
+  const requests: URLSearchParams[] = [];
+  window.history.replaceState(null, '', '/?keep=value');
+  server.use(
+    http.get(baseUrl + '/runs', ({ request }) => {
+      const params = new URL(request.url).searchParams;
+      requests.push(params);
+      return HttpResponse.json({
+        items: [recent],
+        next_cursor: params.has('cursor') ? null : 'page2',
+        total: 24,
+        total_bytes: 1536,
+      });
+    }),
+  );
+  history();
+  await screen.findByText('24 matching runs · 1.5 KiB');
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+  await screen.findByText('Page 2');
+  await waitFor(() => expect(requests.at(-1)?.get('cursor')).toBe('page2'));
+  fireEvent.change(screen.getByLabelText('Search by name'), {
+    target: { value: 'Arc' },
+  });
+  fireEvent.change(screen.getByLabelText('Search by name'), {
+    target: { value: 'Arctic' },
+  });
+  fireEvent.change(screen.getByLabelText('Created from'), {
+    target: { value: '2026-03-28' },
+  });
+  fireEvent.change(screen.getByLabelText('Created through'), {
+    target: { value: '2026-03-29' },
+  });
+  fireEvent.change(screen.getByLabelText('Sort'), { target: { value: 'size_desc' } });
+  await screen.findByText('Page 1');
+  const expected = {
+    q: 'Arctic',
+    created_from: new Date('2026-03-28T00:00:00').toISOString(),
+    created_to: new Date('2026-03-30T00:00:00').toISOString(),
+    sort: 'size_desc',
+  };
+  await waitFor(() =>
+    expect(Object.fromEntries(requests.at(-1)!)).toEqual({ ...expected, limit: '10' }),
+  );
+  expect(requests).toHaveLength(3);
+  expect(Object.fromEntries(new URLSearchParams(window.location.search))).toEqual({
+    ...expected,
+    keep: 'value',
+    history_tab: 'runs',
+  });
+  window.history.replaceState(null, '', '/');
+});
+
+it('restores field filters from the URL and renders the storage breakdown', async () => {
+  window.history.replaceState(
+    null,
+    '',
+    '/?q=ice&sort=name_desc&history_tab=fields&created_from=2026-02-02T12:00:00Z&created_to=2026-02-04T12:00:00Z',
+  );
+  server.use(
+    http.get(baseUrl + '/fields', () =>
+      HttpResponse.json({ items: [], next_cursor: null, total: 0, total_bytes: 0 }),
+    ),
+  );
+  history();
+  expect(await screen.findByText('2 KiB used by Climate Sim')).toBeVisible();
+  for (const text of [
+    'runs 1 KiB',
+    'fields 512 B',
+    'nowcasts 512 B',
+    '6 KiB free of 8 KiB',
+  ])
+    expect(screen.getByText(text)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Fields', pressed: true })).toBeVisible();
+  expect(screen.getByLabelText('Search by name')).toHaveValue('ice');
+  expect(screen.getByLabelText('Sort')).toHaveValue('name_desc');
+  await screen.findByText('0 matching fields · 0 B');
+  window.history.replaceState(null, '', '/');
+});
+
+it.each([
+  ['runs', recent],
+  ['fields', field],
+] as const)(
+  'renames %s inline via PATCH, including retry after rejection',
+  async (tab, item) => {
+    let name = item.name;
+    let patch: unknown;
+    server.use(
+      http.get(baseUrl + '/runs', () =>
+        HttpResponse.json({
+          items: [{ ...recent, name }],
+          total: 1,
+          total_bytes: 1024,
+          next_cursor: null,
+        }),
+      ),
+      http.get(baseUrl + '/fields', () =>
+        HttpResponse.json({
+          items: [{ ...field, name }],
+          total: 1,
+          total_bytes: 32,
+          next_cursor: null,
+        }),
+      ),
+      http.patch(baseUrl + '/' + tab + '/' + item.id, async ({ request }) => {
+        patch = await request.json();
+        if (name === item.name && (patch as { name: string }).name === 'rejected')
+          return HttpResponse.json({ detail: 'Rename unavailable' }, { status: 503 });
+        name = (patch as { name: string }).name;
+        return HttpResponse.json({ ...item, name });
+      }),
+    );
+    history();
+    if (tab === 'fields')
+      fireEvent.click(screen.getByRole('button', { name: 'Fields' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename ' + item.name }));
+    const input = screen.getByLabelText('New name');
+    fireEvent.change(input, { target: { value: ' ' } });
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    fireEvent.change(input, { target: { value: 'rejected' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText('Rename unavailable');
+    fireEvent.change(input, { target: { value: '  November clouds  ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText('November clouds');
+    expect(patch).toEqual({ name: 'November clouds' });
+  },
+);

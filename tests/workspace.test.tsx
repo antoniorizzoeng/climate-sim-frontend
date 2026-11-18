@@ -6,7 +6,7 @@ import Workspace from '@/app/page';
 import { baseUrl } from '@/lib/api';
 import type { RequestBody } from '@/lib/model';
 import { config } from '@/mocks/store';
-import { field, simulation } from './fixtures/simulation';
+import { field, simulation, storage } from './fixtures/simulation';
 
 const queued = simulation({ status: 'queued', frames: 0, step: 0, queue_position: 2 });
 const running = {
@@ -17,6 +17,7 @@ const running = {
 };
 const done = simulation({ frames: 1 });
 const server = setupServer(
+  http.get(baseUrl + '/storage', () => HttpResponse.json(storage)),
   http.get(baseUrl + '/config', () => HttpResponse.json(config)),
   http.post(baseUrl + '/fields/drawn', () => HttpResponse.json(field)),
   http.post(baseUrl + '/runs/validate', () =>
@@ -197,7 +198,12 @@ it('keeps the newer history run selected when an older cancellation finishes', a
   const other = simulation({ id: 'simulation-b', frames: 0, step: 7 });
   server.use(
     http.get(baseUrl + '/runs', () =>
-      HttpResponse.json({ items: [other], next_cursor: null }),
+      HttpResponse.json({
+        items: [other],
+        total: 1,
+        total_bytes: 1024,
+        next_cursor: null,
+      }),
     ),
     http.delete(baseUrl + '/runs/:id', async () => {
       started.resolve();
@@ -356,10 +362,15 @@ it('uses retained default statistics to launch an archived field without request
   const submit = vi.fn();
   server.use(
     http.get(baseUrl + '/runs', () =>
-      HttpResponse.json({ items: [], next_cursor: null }),
+      HttpResponse.json({ items: [], total: 0, total_bytes: 0, next_cursor: null }),
     ),
     http.get(baseUrl + '/fields', () =>
-      HttpResponse.json({ items: [archived], next_cursor: null }),
+      HttpResponse.json({
+        items: [archived],
+        total: 1,
+        total_bytes: 1024,
+        next_cursor: null,
+      }),
     ),
     http.get(baseUrl + '/fields/:id/stats', () =>
       HttpResponse.json({ detail: 'Archived' }, { status: 409 }),

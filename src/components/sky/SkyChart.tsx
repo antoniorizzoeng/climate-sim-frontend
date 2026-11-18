@@ -1,3 +1,5 @@
+import { useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Activity, Moon, Telescope } from 'lucide-react';
 import {
   bestWindow,
@@ -12,7 +14,41 @@ import {
 
 type SeeingSample = Pick<SiteSample, 'time' | 'jet_ms' | 'seeing'>;
 
+function WindTooltip({ anchor, text }: { anchor: HTMLElement; text: string }) {
+  const tip = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    function place() {
+      if (!tip.current) return;
+      const box = anchor.getBoundingClientRect(),
+        { width, height } = tip.current.getBoundingClientRect();
+      const above = box.top - height - 4;
+      tip.current.style.top =
+        Math.max(
+          4,
+          above >= 4
+            ? above
+            : Math.min(window.innerHeight - height - 4, box.bottom + 4),
+        ) + 'px';
+      tip.current.style.left =
+        Math.max(4, Math.min(box.left, window.innerWidth - width - 4)) + 'px';
+    }
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [anchor, text]);
+  return createPortal(
+    <span role="tooltip" ref={tip} className="sky-wind-tooltip">
+      {text}
+    </span>,
+    document.body,
+  );
+}
 export function SeeingStrip({ site }: { site: SeeingSample[] }) {
+  const [tip, setTip] = useState<{ anchor: HTMLElement; text: string }>();
   return (
     <div className="seeing-strip" role="group" aria-label="Hourly seeing">
       {seeingHours(site).map((s) => {
@@ -22,17 +58,22 @@ export function SeeingStrip({ site }: { site: SeeingSample[] }) {
             key={s.time}
             role="img"
             className={'seeing-chip ' + s.seeing}
+            onFocus={(e) => setTip({ anchor: e.currentTarget, text: wind })}
+            onBlur={() => setTip(undefined)}
+            onMouseEnter={(e) => setTip({ anchor: e.currentTarget, text: wind })}
+            onMouseLeave={() => setTip(undefined)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setTip(undefined);
+            }}
             tabIndex={0}
             aria-label={localStamp(s.time) + ', ' + s.seeing + ', ' + wind}
           >
             <time dateTime={s.time}>{clockTime(s.time)}</time>
             <b>{s.seeing}</b>
-            <span className="wind-tip" aria-hidden="true">
-              {wind}
-            </span>
           </span>
         );
       })}
+      {tip && <WindTooltip {...tip} />}
     </div>
   );
 }
@@ -40,14 +81,16 @@ export function SeeingStrip({ site }: { site: SeeingSample[] }) {
 const percent = (v: number) => Math.round(100 * v) + '%';
 // Older backends and saved forecasts can omit these fields.
 type ChartSample = Omit<SiteSample, 'blend'> & Partial<Pick<SiteSample, 'blend'>>;
-type ChartRecord = Omit<Nowcast, 'site' | 'best_window'> & {
+type ChartRecord = Omit<Nowcast, 'site' | 'best_window' | 'night'> & {
   site: ChartSample[] | null;
+  night?: Nowcast['night'];
   best_window?: Nowcast['best_window'];
 };
 
 export function SkyChart({ record }: { record?: ChartRecord }) {
   const site = record?.site;
-  const label = 'Tonight at a glance';
+  const label =
+    record?.params.window === 'now' ? 'Next hours at a glance' : 'Tonight at a glance';
   if (!record || !site?.length)
     return (
       <section className="panel">
@@ -69,26 +112,74 @@ export function SkyChart({ record }: { record?: ChartRecord }) {
         </div>
       </section>
     );
-  const legacyWindow = record.best_window === undefined ? bestWindow(site) : undefined;
-  const window =
+  const night = record.night;
+  const nightSamples = night
+    ? site.filter(
+        (s) =>
+          Date.parse(s.time) >= Date.parse(night.dusk) &&
+          Date.parse(s.time) <= Date.parse(night.dawn),
+      )
+    : site;
+  const legacyWindow =
+    record.best_window === undefined ? bestWindow(nightSamples) : undefined;
+  const candidate =
     record.best_window ??
     (legacyWindow && {
-      start: site[legacyWindow.start].time,
-      end: site[legacyWindow.end].time,
+      start: nightSamples[legacyWindow.start].time,
+      end: nightSamples[legacyWindow.end].time,
     });
-  const sampleIndex = (iso: string) =>
-    site.findIndex((sample) => Date.parse(sample.time) === Date.parse(iso));
-  const startIndex = window ? sampleIndex(window.start) : -1;
-  const endIndex = window ? sampleIndex(window.end) : -1;
-  const windowEdges =
-    startIndex < 0 || endIndex < 0 ? [] : [...new Set([startIndex, endIndex])];
+  const windowSamples = candidate
+    ? nightSamples.filter(
+        (s) =>
+          Date.parse(s.time) >= Date.parse(candidate.start) &&
+          Date.parse(s.time) <= Date.parse(candidate.end),
+      )
+    : [];
+  const window = windowSamples.length
+    ? {
+        start: windowSamples[0].time,
+        end: windowSamples[windowSamples.length - 1].time,
+      }
+    : undefined;
+  const startIndex = window ? site.indexOf(windowSamples[0]) : -1;
+  const endIndex = window ? site.indexOf(windowSamples[windowSamples.length - 1]) : -1;
+  const windowEdges = night && window ? [...new Set([startIndex, endIndex])] : [];
   const hasBlend = site.every((sample) => sample.blend);
   const cover = (sample: ChartSample) =>
     (hasBlend ? sample.blend : undefined) ?? sample.nowcast;
   const coverLabel = hasBlend ? 'Blended cloud cover' : 'Nowcast cloud cover';
   const tau = record.params.blend_tau_hours ?? defaultBlendTauHours;
   const last = site.length - 1;
-  const x = (i: number) => (1000 * i) / Math.max(1, last);
+  const start = Date.parse(site[0].time);
+  const timeX = (iso: string) =>
+    (1000 * (Date.parse(iso) - start)) /
+    Math.max(1, Date.parse(site[last].time) - start);
+  const x = (i: number) => timeX(site[i].time);
+  const dusk = night ? Math.max(0, Math.min(1000, timeX(night.dusk))) : 0;
+  const dawn = night ? Math.max(0, Math.min(1000, timeX(night.dawn))) : 0;
+  const nightBand = night && (
+    <>
+      <rect
+        className="night-band"
+        x={dusk}
+        width={Math.max(0, dawn - dusk)}
+        height="100"
+      />
+      {[night.dusk, night.dawn]
+        .filter((t) => timeX(t) >= 0 && timeX(t) <= 1000)
+        .map((t) => (
+          <line
+            key={t}
+            className="twilight-marker"
+            x1={timeX(t)}
+            x2={timeX(t)}
+            y1="0"
+            y2="100"
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+    </>
+  );
   const points = (value: (s: ChartSample) => number) =>
     site.map((s, i) => x(i) + ',' + (100 - 100 * value(s))).join(' ');
   const ticks = Array.from(
@@ -111,7 +202,7 @@ export function SkyChart({ record }: { record?: ChartRecord }) {
         <div className="best-window">
           <Moon size={23} />
           <div>
-            <span>Best observing window</span>
+            <span>{night ? 'Best observing window' : 'Best forecast window'}</span>
             <strong>
               {window
                 ? clockTime(window.start) + ' – ' + clockTime(window.end)
@@ -145,8 +236,10 @@ export function SkyChart({ record }: { record?: ChartRecord }) {
             role="img"
             aria-label="Clear-sky percentage over time. Sample values are in the table below."
           >
+            {nightBand}
             {windowEdges.length === 2 && (
               <rect
+                className="window-highlight"
                 x={x(startIndex)}
                 width={x(endIndex) - x(startIndex)}
                 height="100"
@@ -200,6 +293,57 @@ export function SkyChart({ record }: { record?: ChartRecord }) {
             <span key={i}>{clockTime(site[i].time)}</span>
           ))}
         </div>
+        {night && (
+          <section aria-label="Astronomical night">
+            <p className="night-caption">
+              Astronomical twilight · Dusk {localStamp(night.dusk)} · Dawn{' '}
+              {localStamp(night.dawn)}
+            </p>
+            {night.moon.length > 0 && (
+              <>
+                <div className="sky-plot-head">
+                  <h3>Moon altitude</h3>
+                  <small>
+                    {percent(night.moon[0].illumination)} illuminated at{' '}
+                    {clockTime(night.moon[0].time)}
+                  </small>
+                </div>
+                <div className="clear-plot moon-plot">
+                  <div className="clear-axis">
+                    <span>90°</span>
+                    <span>0°</span>
+                    <span>−90°</span>
+                  </div>
+                  <svg
+                    viewBox="0 0 1000 100"
+                    preserveAspectRatio="none"
+                    role="img"
+                    aria-label="Moon altitude above or below the horizon over time"
+                  >
+                    {nightBand}
+                    <line
+                      x1="0"
+                      x2="1000"
+                      y1="50"
+                      y2="50"
+                      stroke="#85868c"
+                      strokeDasharray="4 4"
+                    />
+                    <polyline
+                      points={night.moon
+                        .map(
+                          (m) =>
+                            timeX(m.time) + ',' + (50 - (m.altitude_deg * 50) / 90),
+                        )
+                        .join(' ')}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </svg>
+                </div>
+              </>
+            )}
+          </section>
+        )}
         <div className="sky-plot-head">
           <h3>{coverLabel}</h3>
           <small>0–100% per layer</small>
@@ -224,7 +368,10 @@ export function SkyChart({ record }: { record?: ChartRecord }) {
         <SeeingStrip site={site} />
         <details className="sky-values">
           <summary>
-            Ten-minute site samples · {Intl.DateTimeFormat().resolvedOptions().timeZone}
+            Ten-minute site samples{' '}
+            <span className="disclosure-hint">
+              {Intl.DateTimeFormat().resolvedOptions().timeZone}
+            </span>
           </summary>
           <div
             className="sky-table-scroll"
