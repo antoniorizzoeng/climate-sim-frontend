@@ -8,7 +8,9 @@ test('observing site → nowcast timeline → three synchronised layer movies', 
   await page.setViewportSize({ width: 1440, height: 1000 });
   const external: string[] = [];
   page.on('request', (req) => {
-    if (new URL(req.url()).hostname.endsWith('maptiler.com')) external.push(req.url());
+    const host = new URL(req.url()).hostname;
+    if (host === 'maptiler.com' || host.endsWith('.maptiler.com'))
+      external.push(req.url());
   });
   await page.goto('/');
   await expect(page.getByText('Mock engine')).toBeVisible();
