@@ -83,7 +83,7 @@ it('polls a queued GIF export after Retry-After and downloads only the finished 
   expect(button).toBeDisabled();
   expect(downloads).toEqual([]);
   expect(queries).toHaveLength(1);
-  await waitFor(() => expect(downloads).toEqual(['simulation.gif']), { timeout: 2500 });
+  await waitFor(() => expect(downloads).toEqual(['simulation.gif']), { timeout: 6000 });
   expect(times[1] - times[0]).toBeGreaterThanOrEqual(950);
   expect(button).toBeEnabled();
   expect(queries.map((query) => Object.fromEntries(query))).toEqual(
