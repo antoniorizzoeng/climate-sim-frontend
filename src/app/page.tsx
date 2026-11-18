@@ -166,7 +166,7 @@ export default function Workspace() {
     setFill(null);
     clearReview();
   }
-  function openRun(r: Run, play = false) {
+  function inspectRun(r: Run, play = false) {
     setAutoplay(play && !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     setPresented(-1);
     setRun(r);
@@ -174,7 +174,6 @@ export default function Workspace() {
     setN(0);
     setReadout('');
     setColors({ colormap: previewMap });
-    setView('workspace');
     setPollError('');
     clearReview();
   }
@@ -263,7 +262,7 @@ export default function Workspace() {
         reviewed.current = ticket;
         return;
       }
-      openRun(checked(await api.POST('/runs', { body })), isExample);
+      inspectRun(checked(await api.POST('/runs', { body })), isExample);
     } catch (e) {
       setError(message(e));
     } finally {
@@ -437,7 +436,14 @@ export default function Workspace() {
           <Sky online={!!config} />
         ) : view === 'history' ? (
           config ? (
-            <History onDelete={forget} openField={openField} openRun={openRun} />
+            <History
+              onDelete={forget}
+              openField={openField}
+              openRun={(r) => {
+                inspectRun(r);
+                setView('workspace');
+              }}
+            />
           ) : (
             <p>Waiting for the engine connection…</p>
           )

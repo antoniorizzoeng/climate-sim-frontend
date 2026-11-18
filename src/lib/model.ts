@@ -61,10 +61,16 @@ export function dtMax({
   Dz = D,
   vz = 0,
 }: Conditions) {
-  const advection =
-    Math.abs(vx) / dx + Math.abs(vy) / dy + (nz > 1 ? Math.abs(vz) / dz : 0);
+  const advection = Math.abs(vx) / dx + Math.abs(vy) / dy;
+  if (nz <= 1) {
+    // Match the API's operation order so the clamp rounds to the same limit.
+    const diffusion = D ? 2 * D * (1 / (dx * dx) + 1 / (dy * dy)) : 0;
+    const limit = 1 / (advection + diffusion);
+    if (limit > 0 && Number.isFinite(limit)) return limit;
+  }
+  // Use staged division for 3D and as a fallback for extreme 2D inputs.
   const diffusion = D / dx / dx + D / dy / dy + (nz > 1 ? Dz / dz / dz : 0);
-  const denominator = advection + 2 * diffusion;
+  const denominator = advection + (nz > 1 ? Math.abs(vz) / dz : 0) + 2 * diffusion;
   return denominator === 0 ? null : 1 / denominator;
 }
 export function clampTimeStep(model: Conditions): Conditions {
