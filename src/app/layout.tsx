@@ -15,8 +15,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <aside className="demo-banner" aria-label="Demo information">
             <div className="shell">
               <span>
-                <strong>Demo</strong> · Simulated engine. Simulation and nowcast data
-                stay in your browser.
+                <strong>Demo</strong> · Runs on a mock engine: results are a quick
+                visual approximation of the real algorithm, not a physics simulation,
+                and Sky uses synthetic weather, not real forecasts. Everything stays in
+                your browser.
               </span>
               <span>
                 Run the real stack on your machine ·{' '}
