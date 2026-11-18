@@ -32,6 +32,52 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByText('Engine online', { exact: true })).toBeVisible();
 });
 
+test('the API accepts the client-clamped 2D diffusion step', async ({ page }) => {
+  await page.getByRole('button', { name: /Twin hotspots/ }).click();
+  await setRunLength(page, 2, 2);
+  await page.getByLabel('Grid spacing dx').fill('0.1');
+  await page.getByLabel('Grid spacing dy').fill('0.7');
+  await page.getByLabel('Diffusion D').fill('0.01');
+  await page.getByLabel('Velocity vx').fill('0');
+  await page.getByLabel('Velocity vy').fill('0');
+  await page.getByLabel('Time step dt').fill('1');
+  const [response] = await Promise.all([
+    page.waitForResponse('**/runs/validate'),
+    page.getByRole('button', { name: 'Run simulation' }).click(),
+  ]);
+  expect(response.ok()).toBe(true);
+  expect(await response.json()).toMatchObject({ ok: true, errors: [] });
+});
+
+test('a pending simulation launch keeps Sky selected and starts the run', async ({
+  page,
+}) => {
+  await page.getByRole('button', { name: /Twin hotspots/ }).click();
+  await setRunLength(page, 12, 4);
+
+  const gate = Promise.withResolvers<void>();
+  await page.route('**/runs/validate', async (route) => {
+    await gate.promise;
+    await route.continue();
+  });
+  const validation = page.waitForRequest('**/runs/validate');
+  const submission = startRun(page);
+  await validation;
+  const sky = page.getByRole('button', { name: 'Sky', exact: true });
+  await sky.click();
+  const heading = page.getByRole('heading', { level: 1 });
+  await expect(heading).toHaveText('Observing sky');
+
+  gate.resolve();
+  const run = await submission;
+  // Polling starts after the client has processed the launch response.
+  await page.waitForRequest((req) => new URL(req.url()).pathname === `/runs/${run.id}`);
+  await expect(heading).toHaveText('Observing sky');
+  await expect(sky).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('button', { name: 'Workspace', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Run inspector' })).toBeVisible();
+});
+
 test('paints an example, sees live frames, scrubs and exports PNG and MP4', async ({
   page,
 }, info) => {

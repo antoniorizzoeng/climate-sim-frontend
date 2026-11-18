@@ -38,6 +38,10 @@ it('uses both spacings and absolute advection speeds', () => {
     1 / (2 + 1 / 4 + 1 / 9),
   );
 });
+it('clamps a 2D diffusion step to the API stability limit', () => {
+  const m = { ...defaults, dx: 0.1, dy: 0.7, D: 0.01, vx: 0, vy: 0, dt: 1 };
+  expect(clampTimeStep(m).dt).toBe(0.49);
+});
 it('pairs periodic edges and unpairs them together', () => {
   render(<Form />);
   expect(screen.getByLabelText('left edge')).toHaveAccessibleDescription(
