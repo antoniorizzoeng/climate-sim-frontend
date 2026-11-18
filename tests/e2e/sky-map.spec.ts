@@ -59,10 +59,13 @@ test('uses the bundled MapLibre renderer with a local fixture for MapTiler', asy
   await page.getByText('Map key', { exact: false }).first().click();
   await page.getByLabel('MapTiler API key').fill('browser-fixture');
   await page.getByRole('button', { name: 'Apply' }).click();
+  const elevation = page.getByLabel('Elevation (m)');
+  await elevation.fill('4205');
   await page.getByLabel('Address or place').fill('Teide');
   await page.getByRole('button', { name: 'Search', exact: true }).click();
   await page.getByRole('button', { name: 'Teide Observatory' }).click();
   await expect(page.getByLabel('Latitude (°)')).toHaveValue('28.31');
+  await expect(elevation).toHaveValue('');
   await page.getByRole('button', { name: 'Choose on map' }).click();
   await expect(page.locator('.sky-site-map .maplibregl-marker')).toBeVisible();
   await page.getByRole('button', { name: 'Close map' }).click();
@@ -74,6 +77,7 @@ test('uses the bundled MapLibre renderer with a local fixture for MapTiler', asy
   expect((await post).postDataJSON()).toEqual({
     lat: 28.31,
     lon: -16.51,
+    elevation_m: null,
     window: 'tonight',
     radius_km: 300,
     resolution: 24,

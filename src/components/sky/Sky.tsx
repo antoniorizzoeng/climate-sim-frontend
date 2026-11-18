@@ -22,6 +22,7 @@ function terminal(record: Nowcast) {
 }
 
 function Method({ record }: { record?: Nowcast }) {
+  const isDemo = !!process.env.NEXT_PUBLIC_DEMO_BASE_PATH;
   return (
     <section className="panel">
       <header className="panel-head">
@@ -31,23 +32,22 @@ function Method({ record }: { record?: Nowcast }) {
         </h2>
       </header>
       <div className="sky-body sky-method">
-        {process.env.NEXT_PUBLIC_DEMO_BASE_PATH ? (
+        {isDemo ? (
           <p>
-            The demo generates sample cloud cover, winds and seeing in your browser.
+            The demo generates sample weather and simulates automatic site elevation in
+            your browser.
           </p>
         ) : (
           <>
             <p>
               Open-Meteo supplies initial cloud cover and hourly winds. Three runs carry
               low, mid and high clouds across a local grid at 850, 500 and 300 hPa.
-              Cover at the site is sampled between cells and combined using random
-              overlap.
+              Cover at the site is sampled between cells.
             </p>
             <p>
               Cloud formation, dissipation and vertical motion are omitted. The grid
               edges have zero gradient. Confidence is highest in the first few hours,
-              before air from beyond the grid reaches the site. The Open-Meteo line uses
-              its own total cover, interpolated between forecast hours.
+              before air from beyond the grid reaches the site.
             </p>
             <p>
               At first, the blend relies on clouds carried by the wind. As time goes on,
@@ -57,6 +57,22 @@ function Method({ record }: { record?: Nowcast }) {
               Seeing is a rough guide from 250 hPa wind alone. Below 20 m/s is good,
               20–35 m/s is fair, and above 35 m/s is poor.
             </p>
+          </>
+        )}
+        <p>
+          Total cloud cover counts the share of each layer above the observer, combined
+          using random overlap. When every layer counts in full, the model line uses
+          Open-Meteo’s own total. The layer charts and movies show cover for the whole
+          layer.
+        </p>
+        <p>
+          Enter your elevation above sea level or leave it blank to use Open-Meteo’s 90
+          m terrain model. The terrain estimate can miss a summit or ridge. Broad
+          altitude bands estimate how much cloud lies above the site, so Sky can miss
+          local fog or cloud close to the observer.
+        </p>
+        {!isDemo && (
+          <>
             <div className="data-time">
               <span>Initial cloud data</span>
               <strong>
@@ -293,6 +309,7 @@ export function Sky({ online }: { online: boolean }) {
           onKey={setMapKey}
           busy={busy || !online}
           run={submit}
+          siteElevation={selected?.site_elevation}
         />
       </div>
       <div className="sky-results">

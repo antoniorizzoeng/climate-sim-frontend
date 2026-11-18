@@ -161,6 +161,11 @@ it('drapes north-up translucent cover on three bounded hillshade maps, synchroni
   const grid = { lat0: 45, lon0: 179, dx_m: 100000, dy_m: 100000, nx: 2, ny: 2 };
   const record = {
     ...createNowcast({ lat: 45.4, lon: 179.6 }),
+    site_elevation: {
+      elevation_m: 1800,
+      source: 'user' as const,
+      layer_weights: { low: 0.25, mid: 1, high: 1 },
+    },
     grid,
     layers,
     site: [
@@ -168,7 +173,7 @@ it('drapes north-up translucent cover on three bounded hillshade maps, synchroni
       { time: '2026-11-01T00:10:00Z' },
     ] as SiteSample[],
   };
-  const { unmount } = render(
+  const { unmount, container } = render(
     <LayerMovies
       mapKey="visitor-key"
       record={record}
@@ -176,6 +181,10 @@ it('drapes north-up translucent cover on three bounded hillshade maps, synchroni
     />,
   );
   await waitFor(() => expect(putImageData).toHaveBeenCalledTimes(3));
+  expect(screen.getByText('below site · 25% counted')).toBeVisible();
+  expect(
+    container.querySelector('.sky-movie.below-site .cloud-map'),
+  ).toBeInTheDocument();
   const corners = gridCorners(grid);
   expect(corners[1][0]).toBeGreaterThan(180);
   expect(corners[0][0]).toBeCloseTo(178.36, 2);

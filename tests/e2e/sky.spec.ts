@@ -17,11 +17,16 @@ test('observing site → nowcast timeline → three synchronised layer movies', 
   await page.clock.setSystemTime(new Date('2026-11-17T21:00:00Z'));
   await page.getByRole('button', { name: 'Sky', exact: true }).click();
   await expect(page.getByLabel('Latitude (°)')).toHaveValue('');
-  await page.getByLabel('Latitude (°)').fill('28.76');
-  await page.getByLabel('Longitude (°)').fill('-17.89');
-  await page.getByLabel('Site name').fill('Roque de los Muchachos');
+  await page.getByLabel('Latitude (°)').fill('19.82');
+  await page.getByLabel('Longitude (°)').fill('-155.47');
+  const elevation = page.getByLabel('Elevation (m)');
+  await expect(elevation).toHaveValue('');
+  await elevation.fill('4205');
+  await page.getByLabel('Site name').fill('Mauna Kea');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await page.getByRole('button', { name: 'Roque de los Muchachos' }).click();
+  await elevation.clear();
+  await page.getByRole('button', { name: 'Mauna Kea' }).click();
+  await expect(elevation).toHaveValue('4205');
   await page.getByRole('button', { name: 'Run nowcast' }).click();
   const chart = page.getByRole('region', { name: 'Tonight at a glance' });
   await expect(chart.getByText('Blend (recommended)')).toBeVisible({
@@ -30,6 +35,21 @@ test('observing site → nowcast timeline → three synchronised layer movies', 
   await expect(chart.getByText(/Blend = wind transport.*τ = 2 h/)).toBeVisible();
   await expect(chart.getByText('Nowcast (wind transport)')).toBeVisible();
   await expect(chart.getByText('Model forecast (Open-Meteo)')).toBeVisible();
+  await expect(page.getByText(/Nowcast used 4,205 m · entered/)).toBeVisible();
+  await expect(
+    chart.getByText(/Counting cloud above 4,205 m · low cloud below the site ignored/),
+  ).toBeVisible();
+  await expect(chart.getByText('51% counted')).toBeVisible();
+  await expect(chart.locator('.cover-bands .below-site svg')).toHaveCSS(
+    'opacity',
+    '0.45',
+  );
+  await expect(page.locator('.sky-movies').getByText('below site')).toBeVisible();
+  await expect(page.locator('.sky-movies').getByText('51% counted')).toBeVisible();
+  await expect(page.locator('.sky-movie.below-site .sky-frame')).toHaveCSS(
+    'opacity',
+    '0.45',
+  );
   await expect(
     chart.getByRole('heading', { name: 'Blended cloud cover' }),
   ).toBeVisible();

@@ -153,17 +153,21 @@ it('keeps nowcasting available when saved sites cannot be read or written', () =
   expect(run).toHaveBeenCalledExactlyOnceWith({
     lat: 42,
     lon: 12,
+    elevation_m: null,
     radius_km: 300,
     window: 'tonight',
     resolution: 96,
   });
 });
 
-it('persists a named site and restores its coordinates on a fresh visit', () => {
+it('persists a named site and restores its coordinates and entered elevation on a fresh visit', () => {
   const run = vi.fn();
   const view = render(<SitePicker busy={false} run={run} />);
   fireEvent.change(screen.getByLabelText('Latitude (°)'), { target: { value: '-23' } });
   fireEvent.change(screen.getByLabelText('Longitude (°)'), { target: { value: '15' } });
+  const elevation = screen.getByLabelText('Elevation (m)');
+  expect(elevation).toHaveAttribute('placeholder', 'Auto from terrain model');
+  fireEvent.change(elevation, { target: { value: '-12.5' } });
   expect(screen.getByLabelText('Site name')).toBeVisible();
   fireEvent.change(screen.getByLabelText('Site name'), {
     target: { value: '  Dark site  ' },
@@ -175,6 +179,45 @@ it('persists a named site and restores its coordinates on a fresh visit', () => 
   fireEvent.click(screen.getByRole('button', { name: 'Dark site' }));
   expect(screen.getByLabelText('Latitude (°)')).toHaveValue(-23);
   expect(screen.getByLabelText('Longitude (°)')).toHaveValue(15);
+  expect(screen.getByLabelText('Elevation (m)')).toHaveValue(-12.5);
+  fireEvent.click(screen.getByRole('button', { name: 'Run nowcast' }));
+  expect(run).toHaveBeenCalledWith(expect.objectContaining({ elevation_m: -12.5 }));
+  fireEvent.change(screen.getByLabelText('Elevation (m)'), {
+    target: { value: '9001' },
+  });
+  expect(screen.getByLabelText('Elevation (m)')).toBeInvalid();
+  expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Run nowcast' }));
+  expect(run).toHaveBeenCalledTimes(1);
+});
+
+it('restores an old saved site in automatic mode and shows the server elevation source when available', () => {
+  localStorage.setItem(
+    'climatesim.sky.sites',
+    JSON.stringify([{ name: 'Old site', lat: 19.82, lon: -155.47 }]),
+  );
+  const run = vi.fn();
+  const view = render(<SitePicker busy={false} run={run} siteElevation={null} />);
+  fireEvent.change(screen.getByLabelText('Elevation (m)'), { target: { value: '30' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Old site' }));
+  expect(screen.getByLabelText('Elevation (m)')).toHaveValue(null);
+  expect(screen.queryByText(/Nowcast used/)).toBeNull();
+  const result = { elevation_m: 4205, layer_weights: { low: 0, mid: 0.51, high: 1 } };
+  view.rerender(
+    <SitePicker
+      busy={false}
+      run={run}
+      siteElevation={{ ...result, source: 'open-meteo' }}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent(
+    /Nowcast used .* m · from Open-Meteo terrain/,
+  );
+  view.rerender(
+    <SitePicker busy={false} run={run} siteElevation={{ ...result, source: 'user' }} />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent(/Nowcast used .* m · entered/);
+  expect(screen.getByLabelText('Elevation (m)')).toHaveValue(null);
 });
 
 it('recovers a missing layer and plays the three cloud movies on the same clock', async () => {
@@ -258,6 +301,15 @@ it('recovers a missing layer and plays the three cloud movies on the same clock'
     await screen.findByRole('img', { name: 'high cloud cover · frame 1' });
     for (const layer of ['low', 'mid'])
       await screen.findByRole('img', { name: layer + ' cloud cover · frame 1' });
+    expect(
+      screen.queryByText(/below site|Counting cloud above|Nowcast used/),
+    ).toBeNull();
+    expect(
+      screen.getByText(
+        /Total cloud cover counts the share of each layer above the observer/,
+      ),
+    ).toBeVisible();
+    expect(screen.getByText(/90 m terrain model/)).toBeVisible();
     const clock = screen.getByLabelText('Frame scrubber');
     expect(clock).toHaveAttribute('aria-valuetext', clockTime(site[0].time));
     expect(clock).toHaveAttribute('max', '1');

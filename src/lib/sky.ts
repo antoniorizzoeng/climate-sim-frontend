@@ -3,8 +3,11 @@ import type { components } from './schema';
 export type Nowcast = components['schemas']['Nowcast'];
 export type NowcastParams = Nowcast['params'];
 export type SiteSample = NonNullable<Nowcast['site']>[number];
-export type SavedSite = Pick<NowcastParams, 'lat' | 'lon'> & { name: string };
+export type SavedSite = Pick<NowcastParams, 'lat' | 'lon' | 'elevation_m'> & {
+  name: string;
+};
 export const skyDefaults = { radius_km: 300, hours: 6, resolution: 96 };
+export const elevationLimits = { min: -500, max: 9000 };
 export const defaultBlendTauHours = 2;
 export const layerNames = ['low', 'mid', 'high'] as const;
 export const tenMinutes = 600_000;
@@ -22,6 +25,15 @@ export function reachesPole(lat: number, radiusKm: number) {
   return Math.abs(lat) + (radiusKm / 6371) * (180 / Math.PI) >= 90;
 }
 
+export function validElevation(elevation: number | null | undefined) {
+  return (
+    elevation == null ||
+    (Number.isFinite(elevation) &&
+      elevation >= elevationLimits.min &&
+      elevation <= elevationLimits.max)
+  );
+}
+
 const siteKey = 'climatesim.sky.sites';
 export function loadSites(): SavedSite[] {
   try {
@@ -32,7 +44,8 @@ export function loadSites(): SavedSite[] {
             s &&
             typeof s.name === 'string' &&
             s.name.trim() &&
-            validCoordinates(s.lat, s.lon),
+            validCoordinates(s.lat, s.lon) &&
+            validElevation(s.elevation_m),
         )
       : [];
   } catch {

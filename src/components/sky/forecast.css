@@ -82,6 +82,31 @@
 .sky-layout .sky-method p {
   color: var(--muted);
 }
+.sky-body .observer-cloud {
+  margin: 8px 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.annotated-layers > div {
+  grid-template-columns: 115px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+}
+.cover-bands .layer-weight {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+}
+.sky-movies:has(.layer-weight) {
+  align-items: end;
+}
+.sky-movie .layer-weight {
+  flex-basis: 100%;
+}
+.cover-bands .below-site svg,
+.sky-movie.below-site > :is(.sky-frame, .cloud-map) {
+  opacity: 0.45;
+}
 @media (max-width: 620px) {
   .mapped-movies {
     grid-template-columns: minmax(0, 1fr);

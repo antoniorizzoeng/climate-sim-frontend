@@ -4,6 +4,7 @@ import { Player } from '@/components/Player';
 import { Timeline } from '@/components/Timeline';
 import { gradient, type Run } from '@/lib/model';
 import { clockTime, layerNames, type Nowcast } from '@/lib/sky';
+import { LayerWeightTag, mostlyBelow } from './ObserverCloud';
 
 import type { Map as LibreMap } from 'maplibre-gl';
 const CloudMap = lazy(() => import('./CloudMap'));
@@ -13,13 +14,11 @@ const ignoreReadout = () => {};
 
 function Movie({
   name,
-  pressure,
   run,
   n,
   present,
 }: {
   name: string;
-  pressure: number;
   run: Run;
   n: number;
   present: (id: string, n: number) => void;
@@ -29,22 +28,16 @@ function Movie({
     [present, run.id],
   );
   return (
-    <div className="sky-movie">
-      <h3>
-        <span>{name} cloud</span>
-        <small>{pressure} hPa</small>
-      </h3>
-      <Player
-        run={run}
-        n={n}
-        colors={colors}
-        range={range}
-        onPresent={onPresent}
-        onRead={ignoreReadout}
-        readout=""
-        layerLabel={name}
-      />
-    </div>
+    <Player
+      run={run}
+      n={n}
+      colors={colors}
+      range={range}
+      onPresent={onPresent}
+      onRead={ignoreReadout}
+      readout=""
+      layerLabel={name}
+    />
   );
 }
 export function LayerMovies({
@@ -92,38 +85,37 @@ export function LayerMovies({
           {layerNames.map((name) => {
             const layer = record.layers.find((l) => l.layer === name);
             const run = runs.find((r) => r.id === layer?.run_id);
+            const weight = record.site_elevation?.layer_weights[name];
             return (
               layer &&
-              run &&
-              (mapped ? (
-                <div key={run.id} className="sky-movie">
+              run && (
+                <div
+                  key={run.id}
+                  className={mostlyBelow(weight) ? 'sky-movie below-site' : 'sky-movie'}
+                >
                   <h3>
                     <span>{name} cloud</span>
                     <small>{layer.pressure_hpa} hPa</small>
+                    <LayerWeightTag weight={weight} />
                   </h3>
-                  <Suspense fallback={<p>Loading terrain…</p>}>
-                    <CloudMap
-                      mapKey={mapKey}
-                      grid={record.grid}
-                      lat={record.params.lat}
-                      lon={record.params.lon}
-                      peers={peers}
-                      runId={run.id}
-                      n={n}
-                      present={present}
-                    />
-                  </Suspense>
+                  {mapped ? (
+                    <Suspense fallback={<p>Loading terrain…</p>}>
+                      <CloudMap
+                        mapKey={mapKey}
+                        grid={record.grid}
+                        lat={record.params.lat}
+                        lon={record.params.lon}
+                        peers={peers}
+                        runId={run.id}
+                        n={n}
+                        present={present}
+                      />
+                    </Suspense>
+                  ) : (
+                    <Movie name={name} run={run} n={n} present={present} />
+                  )}
                 </div>
-              ) : (
-                <Movie
-                  key={run.id}
-                  name={name}
-                  pressure={layer.pressure_hpa}
-                  run={run}
-                  n={n}
-                  present={present}
-                />
-              ))
+              )
             );
           })}
         </div>

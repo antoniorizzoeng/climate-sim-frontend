@@ -1,29 +1,36 @@
 import { useState, useCallback } from 'react';
 import { Crosshair, LocateFixed, Play, BookmarkPlus } from 'lucide-react';
 import {
+  elevationLimits,
   loadSites,
   reachesPole,
   skyDefaults,
   storeSites,
   validCoordinates,
+  validElevation,
+  type Nowcast,
   type NowcastParams,
   type SavedSite,
 } from '@/lib/sky';
 
 import { MapSettings } from './MapSettings';
+import { formatElevation } from './ObserverCloud';
 export function SitePicker({
   busy,
   run,
   mapKey = '',
   onKey,
+  siteElevation,
 }: {
   busy: boolean;
   mapKey?: string;
   onKey?: (s: string) => void;
+  siteElevation?: Nowcast['site_elevation'];
   run: (params: NowcastParams) => void;
 }) {
   const [lat, setLat] = useState(''),
     [lon, setLon] = useState(''),
+    [elevation, setElevation] = useState(''),
     [name, setName] = useState('');
   const [radius, setRadius] = useState(String(skyDefaults.radius_km)),
     [hours, setHours] = useState(String(skyDefaults.hours)),
@@ -35,10 +42,13 @@ export function SitePicker({
   const choose = useCallback((lat: number, lon: number) => {
     setLat(String(lat));
     setLon(String(lon));
+    setElevation('');
     setName('');
     setNotice('');
   }, []);
   const coordinatesValid = lat !== '' && lon !== '' && validCoordinates(+lat, +lon);
+  const elevationValue = elevation === '' ? null : +elevation;
+  const elevationValid = validElevation(elevationValue);
   const polar = lat !== '' && reachesPole(+lat, +radius);
   function locate() {
     if (!navigator.geolocation) {
@@ -49,9 +59,7 @@ export function SitePicker({
     setNotice('');
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
-        setLat(String(coords.latitude));
-        setLon(String(coords.longitude));
-        setName('');
+        choose(coords.latitude, coords.longitude);
         setLocating(false);
       },
       (error) => {
@@ -62,7 +70,12 @@ export function SitePicker({
     );
   }
   function save() {
-    const site = { name: name.trim(), lat: +lat, lon: +lon };
+    const site = {
+      name: name.trim(),
+      lat: +lat,
+      lon: +lon,
+      elevation_m: elevationValue,
+    };
     const next = [...loadSites().filter((s) => s.name !== site.name), site];
     if (storeSites(next)) {
       setSites(next);
@@ -91,10 +104,11 @@ export function SitePicker({
         className="sky-body control-stack"
         onSubmit={(e) => {
           e.preventDefault();
-          if (coordinatesValid && !polar)
+          if (coordinatesValid && elevationValid && !polar)
             run({
               lat: +lat,
               lon: +lon,
+              elevation_m: elevationValue,
               radius_km: +radius,
               window: windowMode,
               ...(windowMode === 'now' && { hours: +hours }),
@@ -113,11 +127,13 @@ export function SitePicker({
                   coordinatesValid &&
                   +lat === s.lat &&
                   +lon === s.lon &&
+                  elevationValue === (s.elevation_m ?? null) &&
                   name === s.name
                 }
                 onClick={() => {
                   choose(s.lat, s.lon);
                   setName(s.name);
+                  setElevation(s.elevation_m == null ? '' : String(s.elevation_m));
                 }}
               >
                 {s.name}
@@ -153,6 +169,23 @@ export function SitePicker({
             />
           </label>
         </div>
+        <label>
+          Elevation (m)
+          <input
+            type="number"
+            step="any"
+            {...elevationLimits}
+            placeholder="Auto from terrain model"
+            value={elevation}
+            onChange={(e) => setElevation(e.target.value)}
+          />
+        </label>
+        {siteElevation && (
+          <p className="hint" role="status">
+            Nowcast used {formatElevation(siteElevation.elevation_m)} ·{' '}
+            {siteElevation.source === 'user' ? 'entered' : 'from Open-Meteo terrain'}
+          </p>
+        )}
         <button
           type="button"
           className="secondary"
@@ -183,7 +216,7 @@ export function SitePicker({
             <button
               type="button"
               className="secondary"
-              disabled={!name.trim() || !coordinatesValid}
+              disabled={!name.trim() || !coordinatesValid || !elevationValid}
               onClick={save}
             >
               <BookmarkPlus size={15} />

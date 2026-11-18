@@ -335,7 +335,7 @@ export const handlers = [
     HttpResponse.json({
       status: 'ok',
       engine: 'Mock MPI engine',
-      api_version: '1.4.0',
+      api_version: '1.5.0',
     }),
   ),
   http.get(url('/config'), () => HttpResponse.json(config)),
