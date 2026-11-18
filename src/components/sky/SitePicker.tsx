@@ -163,9 +163,11 @@ export function SitePicker({
           {locating ? 'Locating…' : 'Use my location'}
         </button>
         <p className="hint">
-          Running or refreshing sends the site and surrounding grid coordinates to
-          Open-Meteo through the backend. With a map key, place searches and map tiles
-          go directly to MapTiler with your key.
+          {process.env.NEXT_PUBLIC_DEMO_BASE_PATH
+            ? 'Demo nowcasts use simulated weather and keep site coordinates in the browser.'
+            : 'Running or refreshing sends the site and surrounding grid coordinates to Open-Meteo through the backend.'}{' '}
+          With a map key, place searches and map tiles go directly to MapTiler with your
+          key.
         </p>
         <div>
           <h3>Save this site</h3>

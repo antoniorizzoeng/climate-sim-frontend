@@ -31,6 +31,13 @@ export const config: Config = {
 };
 const day = 86400000,
   date = (t: number) => new Date(t).toISOString(),
+  // Same format as the backend's default run names: "18 Nov 10:32 UTC".
+  runStamp = (t: number) => {
+    const d = new Date(t);
+    const two = (n: number) => String(n).padStart(2, '0');
+    const month = d.toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' });
+    return `${two(d.getUTCDate())} ${month} ${two(d.getUTCHours())}:${two(d.getUTCMinutes())} UTC`;
+  },
   id = () => crypto.randomUUID().replaceAll('-', '');
 export const fields = new Map<
   string,
@@ -227,7 +234,7 @@ export function validate(body: RequestBody): S['RunValidation'] {
   };
   let processes =
     body.processes ??
-    Math.min(config.cpu_count, Math.max(1, Math.floor((nx * ny * nz) / 4096)));
+    Math.min(config.cpu_count, Math.max(1, Math.floor((nx * ny * nz) / 131072)));
   if (body.processes === undefined) {
     while (processes > 1 && !fits(processes)) processes--;
   } else if (
@@ -363,7 +370,7 @@ export function start(body: RequestBody, resolved: Run['resolved']): Run {
         ? body.source.preset.replaceAll('_', ' ')
         : fields.get(body.source.field_id)!.field.name) +
         ' · ' +
-        date(now),
+        runStamp(now),
     size_bytes: 0,
     status: 'queued',
     created_at: date(now),

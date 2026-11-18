@@ -78,7 +78,8 @@ const VolumePlayer = dynamic(() => import('@/components/VolumePlayer'), {
   ),
 });
 
-const mockMode = process.env.NEXT_PUBLIC_MOCK_API === '1';
+const mockMode =
+  !!process.env.NEXT_PUBLIC_DEMO_BASE_PATH || process.env.NEXT_PUBLIC_MOCK_API === '1';
 const emptyColors: Colors = { colormap: 'inferno' };
 export default function Workspace() {
   const [config, setConfig] = useState<Config>(),

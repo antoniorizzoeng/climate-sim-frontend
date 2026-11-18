@@ -73,6 +73,26 @@ a {
   margin: 0 auto;
   padding: 0 clamp(20px, 4vw, 72px);
 }
+.demo-banner {
+  background: light-dark(#fbeee7, #26201e);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+.demo-banner .shell {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 20px;
+  padding-block: 8px;
+}
+.demo-banner strong,
+.demo-banner a {
+  color: var(--accent);
+}
+.demo-banner a {
+  text-underline-offset: 3px;
+}
 .app-header {
   background: light-dark(#fcfbf9, #15161b);
   border-bottom: 1px solid var(--line);

@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
+    "build:demo": "DEMO_EXPORT=1 npm run build",
     "start": "next start",
     "lint": "eslint",
     "dev:mock": "NEXT_PUBLIC_MOCK_API=1 next dev --turbopack",
@@ -13,8 +14,9 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:demo": "playwright test -c playwright.pages.config.ts",
     "test:e2e:fullstack": "bash scripts/test-e2e-fullstack.sh",
-    "format": "prettier --check src scripts tests e2e-fullstack *.ts *.mts *.mjs package.json tsconfig.json README.md CONTRIBUTING.md docker-compose.e2e.yml .github/workflows/{ci,e2e}.yml"
+    "format": "prettier --check src scripts tests e2e-fullstack *.ts *.mts *.mjs package.json tsconfig.json README.md CONTRIBUTING.md docker-compose.e2e.yml .github/workflows/{ci,e2e,pages}.yml"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "^5.3.0",

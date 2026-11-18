@@ -31,34 +31,43 @@ function Method({ record }: { record?: Nowcast }) {
         </h2>
       </header>
       <div className="sky-body sky-method">
-        <p>
-          Open-Meteo supplies initial cloud cover and hourly winds. Three runs carry
-          low, mid and high clouds across a local grid at 850, 500 and 300 hPa. Cover at
-          the site is sampled between cells and combined using random overlap.
-        </p>
-        <p>
-          Cloud formation, dissipation and vertical motion are omitted. The grid edges
-          have zero gradient. Confidence is highest in the first few hours, before air
-          from beyond the grid reaches the site. The Open-Meteo line uses its own total
-          cover, interpolated between forecast hours.
-        </p>
-        <p>
-          At first, the blend relies on clouds carried by the wind. As time goes on, it
-          gives more weight to the Open-Meteo forecast.
-        </p>
-        <p>
-          Seeing is a rough guide from 250 hPa wind alone. Below 20 m/s is good, 20–35
-          m/s is fair, and above 35 m/s is poor.
-        </p>
-        <div className="data-time">
-          <span>Initial cloud data</span>
-          <strong>
-            {record?.data_time ? localStamp(record.data_time) : 'Awaiting data'}
-          </strong>
-        </div>
-        <small>
-          Valid hour from Open-Meteo. Best-match data can combine model cycles.
-        </small>
+        {process.env.NEXT_PUBLIC_DEMO_BASE_PATH ? (
+          <p>
+            The demo generates sample cloud cover, winds and seeing in your browser.
+          </p>
+        ) : (
+          <>
+            <p>
+              Open-Meteo supplies initial cloud cover and hourly winds. Three runs carry
+              low, mid and high clouds across a local grid at 850, 500 and 300 hPa.
+              Cover at the site is sampled between cells and combined using random
+              overlap.
+            </p>
+            <p>
+              Cloud formation, dissipation and vertical motion are omitted. The grid
+              edges have zero gradient. Confidence is highest in the first few hours,
+              before air from beyond the grid reaches the site. The Open-Meteo line uses
+              its own total cover, interpolated between forecast hours.
+            </p>
+            <p>
+              At first, the blend relies on clouds carried by the wind. As time goes on,
+              it gives more weight to the Open-Meteo forecast.
+            </p>
+            <p>
+              Seeing is a rough guide from 250 hPa wind alone. Below 20 m/s is good,
+              20–35 m/s is fair, and above 35 m/s is poor.
+            </p>
+            <div className="data-time">
+              <span>Initial cloud data</span>
+              <strong>
+                {record?.data_time ? localStamp(record.data_time) : 'Awaiting data'}
+              </strong>
+            </div>
+            <small>
+              Valid hour from Open-Meteo. Best-match data can combine model cycles.
+            </small>
+          </>
+        )}
       </div>
     </section>
   );

@@ -4,7 +4,10 @@ declare global {
     startClimateMock?: () => Promise<unknown>;
   }
 }
-if (process.env.NEXT_PUBLIC_MOCK_API === '1') {
+if (
+  process.env.NEXT_PUBLIC_DEMO_BASE_PATH ||
+  process.env.NEXT_PUBLIC_MOCK_API === '1'
+) {
   let worker: Promise<unknown> | undefined;
   window.startClimateMock = () => {
     if (!window.isSecureContext || !navigator.serviceWorker) {
