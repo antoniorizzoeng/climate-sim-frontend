@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { ArrowUp, Wind } from 'lucide-react';
 import {
   dtMax,
@@ -87,6 +87,8 @@ export function ConditionsForm({
 }) {
   const limit = dtMax(model),
     [clamped, setClamped] = useState(false);
+  const boundaryHint = useId();
+  const supportsWrap = config.supported_boundary_conditions.includes('periodic');
   function update(next: Model) {
     const max = dtMax(next);
     const clamp = max !== null && next.dt > max;
@@ -159,6 +161,7 @@ export function ConditionsForm({
               <select
                 value={model.bc?.[k] ?? config.supported_boundary_conditions[0]}
                 onChange={(e) => edge(k, e.target.value as Boundary)}
+                aria-describedby={supportsWrap ? boundaryHint : undefined}
               >
                 {config.supported_boundary_conditions.map((b) => (
                   <option key={b} value={b}>
@@ -169,6 +172,12 @@ export function ConditionsForm({
             </label>
           ))}
         </div>
+        {supportsWrap && (
+          <p className="hint" id={boundaryHint}>
+            Wrap-around applies to both opposite edges. Selecting or removing it updates
+            both edges.
+          </p>
+        )}
       </div>
       <details>
         <summary>Advanced conditions</summary>

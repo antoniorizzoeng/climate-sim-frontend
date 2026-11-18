@@ -8,8 +8,9 @@ import {
   tenMinutes,
   type SiteSample,
 } from '@/lib/sky';
-import { SeeingStrip } from '@/components/sky/SkyChart';
+import { SeeingStrip, SkyChart } from '@/components/sky/SkyChart';
 import { SitePicker } from '@/components/sky/SitePicker';
+import { createNowcast } from '@/mocks/nowcasts';
 
 const observatory = { name: 'Roque de los Muchachos', lat: 28.76, lon: -17.89 };
 const initial = Date.parse('2026-11-17T23:00:00Z');
@@ -24,6 +25,7 @@ function sample(
     time: new Date(initial + index * tenMinutes).toISOString(),
     nowcast: cover,
     model: cover,
+    blend: cover,
     seeing,
     jet_ms,
   };
@@ -46,6 +48,97 @@ it('requires two adjacent qualifying samples and does not bridge gaps', () => {
   expect(
     bestWindow([sample(0, 0.69), sample(1), sample(2, 0.98, 'poor')]),
   ).toBeUndefined();
+});
+
+function forecast() {
+  const record = createNowcast({
+    lat: observatory.lat,
+    lon: observatory.lon,
+    blend_tau_hours: 3,
+  });
+  const site = [0, 1, 2, 3].map((i) => ({
+    ...sample(i, 0.8),
+    blend: sample(i, i === 1 || i === 2 ? 0.75 : 0.5).blend,
+  }));
+  return {
+    ...record,
+    status: 'done' as const,
+    site,
+    best_window: {
+      start: site[1].time,
+      end: site[2].time,
+      mean_clear: 0.75,
+      seeing: 'fair' as const,
+    },
+  };
+}
+
+it('plots the blend and uses blended layers in the bands and sample table', () => {
+  const { container } = render(<SkyChart record={forecast()} />);
+  expect(screen.getByText('Blend (recommended)')).toBeVisible();
+  expect(
+    screen.getByText('Blend = wind transport at short range, model later (τ = 3 h)'),
+  ).toBeVisible();
+  const blendLine = container.querySelector('polyline.blend-line');
+  expect(
+    blendLine
+      ?.getAttribute('points')
+      ?.split(' ')
+      .map((p) => p.split(',')[1]),
+  ).toEqual(['50', '25', '25', '50']);
+  expect(
+    container.querySelector('.cover-bands polygon')?.getAttribute('points'),
+  ).toContain('0,50');
+  fireEvent.click(screen.getByText(/Ten-minute site samples ·/));
+  expect(screen.getByRole('columnheader', { name: 'Blend clear' })).toBeVisible();
+  const secondSample = screen.getAllByRole('row')[2];
+  const cells = within(secondSample).getAllByRole('cell');
+  expect(cells[0]).toHaveTextContent('75%');
+  expect(cells[1]).toHaveTextContent('80%');
+  expect(cells[3]).toHaveTextContent('25%');
+});
+
+it('uses the server window for the label and highlight, including an explicit null', () => {
+  const record = forecast();
+  const { container, rerender } = render(<SkyChart record={record} />);
+  const { start, end } = record.best_window;
+  expect(screen.getByText(clockTime(start) + ' – ' + clockTime(end))).toBeVisible();
+  const highlight = container.querySelector('.clear-plot rect');
+  expect(Number(highlight?.getAttribute('x'))).toBeCloseTo(1000 / 3);
+  expect(Number(highlight?.getAttribute('width'))).toBeCloseTo(1000 / 3);
+  rerender(<SkyChart record={{ ...record, best_window: null }} />);
+  expect(screen.getByText('No qualifying stretch')).toBeVisible();
+  expect(container.querySelector('.clear-plot rect')).toBeNull();
+});
+
+it('falls back to transport data and the client window for an older response', () => {
+  const record = createNowcast({ lat: observatory.lat, lon: observatory.lon });
+  const site = [0, 1].map((i) => {
+    const { time, nowcast, model, seeing, jet_ms } = sample(i, 0.8);
+    return { time, nowcast, model, seeing, jet_ms };
+  });
+  const { id, created_at, params, grid, expires_at, message, layers } = record;
+  render(
+    <SkyChart
+      record={{
+        id,
+        created_at,
+        params,
+        grid,
+        expires_at,
+        message,
+        layers,
+        data_time: site[0].time,
+        status: 'done',
+        site,
+      }}
+    />,
+  );
+  expect(screen.queryByText('Blend (recommended)')).toBeNull();
+  expect(screen.getByText('Nowcast cloud cover')).toBeVisible();
+  expect(
+    screen.getByText(clockTime(site[0].time) + ' – ' + clockTime(site[1].time)),
+  ).toBeVisible();
 });
 it('renders an hourly seeing chip with words and wind speed, including the final hour', () => {
   const rows = [

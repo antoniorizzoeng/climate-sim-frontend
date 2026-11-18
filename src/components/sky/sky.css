@@ -193,16 +193,41 @@
   color: #d3d1d5;
   font-size: 11px;
 }
-.line-legend span::before {
+.blend-line {
+  --series-color: #a9e3b9;
+  --series-width: 3px;
+}
+.nowcast-line {
+  --series-color: #ffad86;
+  --series-width: 1.5px;
+  --series-dashes: 3 4;
+}
+.model-line {
+  --series-color: #8bcde9;
+  --series-width: 1.5px;
+  --series-dashes: 7 4;
+}
+.line-legend > *::before {
   content: '';
   display: inline-block;
   vertical-align: middle;
   width: 21px;
   margin-right: 6px;
-  border-top: 3px solid #ffad86;
+  border-top: var(--series-width) dashed var(--series-color);
 }
-.line-legend span + span::before {
-  border-top: 2px dashed #8bcde9;
+.line-legend .blend-line::before {
+  border-top-style: solid;
+}
+.blend-note {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.clear-plot polyline {
+  fill: none;
+  stroke: var(--series-color);
+  stroke-width: var(--series-width);
+  stroke-dasharray: var(--series-dashes, none);
 }
 .clear-plot,
 .cover-bands > div {

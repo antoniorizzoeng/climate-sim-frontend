@@ -210,7 +210,9 @@ export const handlers = [
     const params: unknown = await request.json().catch(() => null);
     return validParams(params)
       ? HttpResponse.json(createNowcast(params), { status: 202 })
-      : invalid('Check coordinates, grid footprint, radius, hours and resolution.');
+      : invalid(
+          'Check coordinates, grid footprint, radius, hours, resolution and blend time.',
+        );
   }),
   http.get(url('/nowcasts'), ({ request }) => {
     const query = new URL(request.url).searchParams;

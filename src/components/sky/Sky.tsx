@@ -32,8 +32,12 @@ function Method({ record }: { record?: Nowcast }) {
         <p>
           Cloud formation, dissipation and vertical motion are omitted. The grid edges
           have zero gradient. Confidence is highest in the first few hours, before air
-          from beyond the grid reaches the site. The comparison line uses Open-Meteo’s
-          own total cover, interpolated between forecast hours.
+          from beyond the grid reaches the site. The Open-Meteo line uses its own total
+          cover, interpolated between forecast hours.
+        </p>
+        <p>
+          At first, the blend relies on clouds carried by the wind. As time goes on, it
+          gives more weight to the Open-Meteo forecast.
         </p>
         <p>
           Seeing is a rough guide from 250 hPa wind alone. Below 20 m/s is good, 20–35

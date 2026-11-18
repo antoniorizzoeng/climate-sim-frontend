@@ -1,5 +1,44 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
+
+test('loads the wrap-around world and keeps opposite edges paired', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('/');
+  await expect(page.getByText('Mock engine')).toBeVisible();
+  const example = page.getByRole('button', { name: /Wrap-around world/ });
+  await example.click();
+  await page.getByRole('button', { name: 'Conditions', exact: true }).click();
+  const edges = ['left', 'right', 'top', 'bottom'].map((edge) =>
+    page.getByLabel(edge + ' edge'),
+  );
+  const [left, right, top, bottom] = edges;
+  for (const edge of edges) await expect(edge).toHaveValue('periodic');
+  await expect(left).toHaveAccessibleDescription(/both opposite edges/);
+  await mkdir('artifacts', { recursive: true });
+  await page.screenshot({
+    path: 'artifacts/workspace-wrap-around.png',
+    fullPage: true,
+  });
+  await left.selectOption('dirichlet');
+  await expect(right).toHaveValue('dirichlet');
+  await expect(top).toHaveValue('periodic');
+  await expect(bottom).toHaveValue('periodic');
+  await right.selectOption('periodic');
+  await expect(left).toHaveValue('periodic');
+  const validation = page.waitForRequest(
+    (req) => req.method() === 'POST' && req.url().endsWith('/runs/validate'),
+  );
+  await page.getByRole('button', { name: 'Run simulation' }).click();
+  expect((await validation).postDataJSON()).toMatchObject({
+    bc: { left: 'periodic', right: 'periodic', top: 'periodic', bottom: 'periodic' },
+    vx: 1,
+    vy: 0.65,
+  });
+  await expect(page.getByRole('img', { name: 'Simulation frame 1' })).toBeVisible();
+});
+
 test('draw → run → watch → export', async ({ page }, info) => {
   await page.goto('/');
   await expect(page.getByText('Mock engine')).toBeVisible();
