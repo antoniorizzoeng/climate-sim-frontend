@@ -34,6 +34,9 @@ it('uses both spacings and absolute advection speeds', () => {
 });
 it('pairs periodic edges and unpairs them together', () => {
   render(<Form />);
+  expect(screen.getByLabelText('left edge')).toHaveAccessibleDescription(
+    'Wrap-around applies to both opposite edges. Selecting or removing it updates both edges.',
+  );
   fireEvent.change(screen.getByLabelText('left edge'), {
     target: { value: 'periodic' },
   });
@@ -43,9 +46,15 @@ it('pairs periodic edges and unpairs them together', () => {
   });
   expect(screen.getByLabelText('left edge')).toHaveValue('neumann');
   expect(screen.getByLabelText('top edge')).toHaveValue('dirichlet');
+  fireEvent.change(screen.getByLabelText('bottom edge'), {
+    target: { value: 'periodic' },
+  });
+  expect(screen.getByLabelText('top edge')).toHaveValue('periodic');
+  expect(screen.getByLabelText('right edge')).toHaveValue('neumann');
 });
 it('offers only boundary conditions reported by the engine', () => {
   render(<Form supported={['neumann']} />);
   expect(screen.queryByRole('option', { name: 'Wrap-around' })).toBeNull();
+  expect(screen.queryByText(/Wrap-around applies/)).toBeNull();
   expect(screen.getAllByRole('option')).toHaveLength(4);
 });

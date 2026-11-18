@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { examplePlane, examples } from '@/lib/examples';
-import { pixels } from '@/lib/model';
+import { pixels, type Boundary } from '@/lib/model';
 
 function Preview({ example }: { example: (typeof examples)[number] }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -19,29 +19,33 @@ export function Examples({
   selected,
   choose,
   disabled,
+  supported = [],
 }: {
   selected: string;
   choose: (example: (typeof examples)[number]) => void;
   disabled: boolean;
+  supported?: Boundary[];
 }) {
   return (
     <section className="examples" aria-labelledby="examples-heading">
       <h2 id="examples-heading">Examples</h2>
       <div className="example-strip">
-        {examples.map((example) => (
-          <button
-            key={example.name}
-            disabled={disabled}
-            aria-pressed={selected === example.name}
-            onClick={() => choose(example)}
-          >
-            <Preview example={example} />
-            <span>
-              <strong>{example.name}</strong>
-              <small>{example.motion}</small>
-            </span>
-          </button>
-        ))}
+        {examples
+          .filter(({ boundary }) => !boundary || supported.includes(boundary))
+          .map((example) => (
+            <button
+              key={example.name}
+              disabled={disabled}
+              aria-pressed={selected === example.name}
+              onClick={() => choose(example)}
+            >
+              <Preview example={example} />
+              <span>
+                <strong>{example.name}</strong>
+                <small>{example.motion}</small>
+              </span>
+            </button>
+          ))}
       </div>
     </section>
   );

@@ -388,6 +388,7 @@ export default function Workspace() {
           <Examples
             selected={mode === 'draw' ? pattern : ''}
             disabled={busy || !config}
+            supported={config?.supported_boundary_conditions}
             choose={(example) => {
               if (!config) return;
               edit(examplePlane(example));
@@ -713,7 +714,7 @@ export default function Workspace() {
           </span>
           <span>
             <BookOpen size={13} />
-            API v1.1.0
+            API v1.2.0
           </span>
         </footer>
       </main>

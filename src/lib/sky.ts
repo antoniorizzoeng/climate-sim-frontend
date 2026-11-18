@@ -5,6 +5,7 @@ export type NowcastParams = Nowcast['params'];
 export type SiteSample = NonNullable<Nowcast['site']>[number];
 export type SavedSite = Pick<NowcastParams, 'lat' | 'lon'> & { name: string };
 export const skyDefaults = { radius_km: 300, hours: 6, resolution: 96 };
+export const defaultBlendTauHours = 2;
 export const layerNames = ['low', 'mid', 'high'] as const;
 export const tenMinutes = 600_000;
 
@@ -67,7 +68,7 @@ export function localStamp(iso: string) {
 }
 
 // A window spans qualifying sample endpoints. Do not extrapolate beyond the last frame.
-export function bestWindow(site: SiteSample[]) {
+export function bestWindow(site: Pick<SiteSample, 'time' | 'nowcast' | 'seeing'>[]) {
   let best: { start: number; end: number } | undefined;
   let start = -1;
   site.forEach((sample, i) => {
@@ -86,7 +87,7 @@ export function bestWindow(site: SiteSample[]) {
   return best;
 }
 
-export function seeingHours(site: SiteSample[]) {
-  const hour = (s: SiteSample) => Math.floor(Date.parse(s.time) / 3_600_000);
+export function seeingHours<T extends Pick<SiteSample, 'time'>>(site: T[]) {
+  const hour = (s: T) => Math.floor(Date.parse(s.time) / 3_600_000);
   return site.filter((s, i) => !i || hour(s) !== hour(site[i - 1]));
 }

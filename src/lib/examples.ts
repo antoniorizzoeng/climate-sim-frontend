@@ -7,6 +7,7 @@ type Example = {
   vx: number;
   vy: number;
   dt: number;
+  boundary?: Boundary;
   intensity: (x: number, y: number, noise: number) => number;
 };
 const gaussian = (x: number, y: number) => Math.exp(-0.5 * (x * x + y * y));
@@ -60,6 +61,16 @@ export const examples: Example[] = [
       (0.3 +
         0.7 * gaussian((x - 0.5) / 0.3, (y - 0.5 - 0.15 * Math.sin(11 * x)) / 0.18)),
   },
+  {
+    name: 'Wrap-around world',
+    motion: 'Diagonal wind carries a peak across both edges',
+    D: 0.03,
+    vx: 1,
+    vy: 0.65,
+    dt: 0.55,
+    boundary: 'periodic',
+    intensity: (x, y) => gaussian((x - 0.78) / 0.055, (y - 0.73) / 0.11),
+  },
 ];
 
 export function examplePlane(example: Example, nx = 128, ny = 64): Plane {
@@ -79,10 +90,14 @@ export function examplePlane(example: Example, nx = 128, ny = 64): Plane {
 }
 
 export function exampleConditions(
-  { D, vx, vy, dt }: Example,
+  { D, vx, vy, dt, boundary = 'neumann' }: Example,
   supported: Boundary[],
 ): Conditions {
-  const edge = supported.includes('neumann') ? 'neumann' : supported[0];
+  const edge = supported.includes(boundary)
+    ? boundary
+    : supported.includes('neumann')
+      ? 'neumann'
+      : supported[0];
   return {
     ...defaults,
     D,

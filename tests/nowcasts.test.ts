@@ -17,6 +17,8 @@ it('rejects footprints and parameters outside the contract', async () => {
     { hours: 1.5 },
     { resolution: 257 },
     { radius_km: 49 },
+    { blend_tau_hours: 0 },
+    { blend_tau_hours: -2 },
   ]) {
     const result = await api.POST('/nowcasts', {
       body: { ...observatory, ...override },
@@ -28,10 +30,16 @@ it('rejects footprints and parameters outside the contract', async () => {
 it('refreshes to a separate record and deletes only its own layer runs', async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   const start = Date.now();
-  const item = checked(await api.POST('/nowcasts', { body: observatory }));
+  const item = checked(
+    await api.POST('/nowcasts', {
+      body: { ...observatory, blend_tau_hours: 1.25 },
+    }),
+  );
   const params = { path: { id: item.id } };
   expect(item.status).toBe('fetching');
   expect(item.site).toBeNull();
+  expect(item.best_window).toBeNull();
+  expect(item.params.blend_tau_hours).toBe(1.25);
   vi.setSystemTime(start + 1000);
   const queued = checked(await api.GET('/nowcasts/{id}', { params }));
   expect(queued.status).toBe('queued');
@@ -54,4 +62,43 @@ it('refreshes to a separate record and deletes only its own layer runs', async (
     ).toBe(404);
   expect((await api.GET('/nowcasts/{id}', { params })).response.status).toBe(404);
   checked(await api.DELETE('/nowcasts/{id}', { params: { path: { id: fresh.id } } }));
+});
+
+it('returns the blended site samples and their best observing window', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  const start = Date.now();
+  const item = checked(await api.POST('/nowcasts', { body: observatory }));
+  const params = { path: { id: item.id } };
+  expect(item.params.blend_tau_hours).toBe(2);
+  let record = item;
+  try {
+    for (const elapsed of [1000, 2000, 6000, 10000, 14000]) {
+      vi.setSystemTime(start + elapsed);
+      record = checked(await api.GET('/nowcasts/{id}', { params }));
+    }
+    expect(record.status).toBe('done');
+    expect(record.site).toHaveLength(37);
+    const site = record.site!;
+    expect(site[0].blend).toEqual(site[0].nowcast);
+    const { blend, model, nowcast } = site[12];
+    for (const field of ['low', 'mid', 'high', 'total'] as const)
+      expect(blend[field]).toBeCloseTo(
+        model[field] + (nowcast[field] - model[field]) / Math.E,
+      );
+    expect(blend.clear).toBeCloseTo(1 - blend.total);
+    expect(record.best_window).not.toBeNull();
+    const window = record.best_window!;
+    const stretch = site.filter(
+      (sample) => sample.time >= window.start && sample.time <= window.end,
+    );
+    expect(stretch.length).toBeGreaterThan(0);
+    expect(
+      stretch.every((sample) => sample.blend.clear >= 0.7 && sample.seeing !== 'poor'),
+    ).toBe(true);
+    expect(window.mean_clear).toBeCloseTo(
+      stretch.reduce((sum, sample) => sum + sample.blend.clear, 0) / stretch.length,
+    );
+  } finally {
+    checked(await api.DELETE('/nowcasts/{id}', { params }));
+  }
 });

@@ -19,10 +19,21 @@ test('observing site → nowcast timeline → three synchronised layer movies', 
   await page.getByText('Save this site', { exact: true }).click();
   await page.getByRole('button', { name: 'Run nowcast' }).click();
   const chart = page.getByRole('region', { name: 'Tonight at a glance' });
-  await expect(chart.getByText('Nowcast (wind transport)')).toBeVisible({
+  await expect(chart.getByText('Blend (recommended)')).toBeVisible({
     timeout: 30000,
   });
+  await expect(chart.getByText(/Blend = wind transport.*τ = 2 h/)).toBeVisible();
+  await expect(chart.getByText('Nowcast (wind transport)')).toBeVisible();
   await expect(chart.getByText('Model forecast (Open-Meteo)')).toBeVisible();
+  await expect(
+    chart.getByRole('heading', { name: 'Blended cloud cover' }),
+  ).toBeVisible();
+  await expect(chart.locator('polyline.blend-line')).toHaveCSS('stroke-width', '3px');
+  for (const series of ['nowcast', 'model'])
+    await expect(chart.locator('polyline.' + series + '-line')).toHaveCSS(
+      'stroke-width',
+      '1.5px',
+    );
   await expect(chart.getByText('No qualifying stretch')).toHaveCount(0);
   for (const layer of ['low', 'mid', 'high'])
     await expect(

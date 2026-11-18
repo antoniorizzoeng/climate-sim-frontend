@@ -1,4 +1,5 @@
 import {
+  defaultBlendTauHours,
   layerNames,
   reachesPole,
   skyDefaults,
@@ -15,10 +16,11 @@ const records = new Map<string, Nowcast>();
 const week = 7 * 86400000;
 export function validParams(body: unknown): body is NowcastParams {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
-  const p = { ...skyDefaults, ...body } as NowcastParams & typeof skyDefaults;
+  const defaults = { ...skyDefaults, blend_tau_hours: defaultBlendTauHours };
+  const p = { ...defaults, ...body } as NowcastParams & typeof defaults;
   return (
     Object.keys(body).every((k) =>
-      ['lat', 'lon', 'hours', 'resolution', 'radius_km'].includes(k),
+      ['lat', 'lon', 'hours', 'resolution', 'radius_km', 'blend_tau_hours'].includes(k),
     ) &&
     validCoordinates(p.lat, p.lon) &&
     Number.isFinite(p.radius_km) &&
@@ -30,12 +32,14 @@ export function validParams(body: unknown): body is NowcastParams {
     p.hours <= 12 &&
     Number.isInteger(p.resolution) &&
     p.resolution >= 16 &&
-    p.resolution <= 256
+    p.resolution <= 256 &&
+    Number.isFinite(p.blend_tau_hours) &&
+    p.blend_tau_hours > 0
   );
 }
 
 export function createNowcast(input: NowcastParams) {
-  const params = { ...skyDefaults, ...input };
+  const params = { ...skyDefaults, blend_tau_hours: defaultBlendTauHours, ...input };
   const now = Date.now(),
     n = params.resolution,
     dx = (2000 * params.radius_km) / n;
@@ -48,6 +52,7 @@ export function createNowcast(input: NowcastParams) {
     data_time: null,
     layers: [],
     site: null,
+    best_window: null,
     message: null,
     expires_at: new Date(now + week).toISOString(),
     grid: {
@@ -124,6 +129,7 @@ function centre(run: Run, frame: number) {
 }
 function samples(record: Nowcast, children: Run[]): SiteSample[] {
   const initial = Date.parse(record.data_time!);
+  const tau = record.params.blend_tau_hours ?? defaultBlendTauHours;
   return Array.from({ length: children[0].frames }, (_, i) => {
     const [low, mid, high] = children.map((run) => centre(run, i));
     const clear = (1 - low) * (1 - mid) * (1 - high),
@@ -135,21 +141,60 @@ function samples(record: Nowcast, children: Run[]): SiteSample[] {
       return value(hour) + ((value(hour + 1) - value(hour)) * (i % 6)) / 6;
     };
     const total = modelCover(0);
+    const model = {
+      low: modelCover(1),
+      mid: modelCover(2),
+      high: modelCover(3),
+      total,
+      clear: 1 - total,
+    };
+    const weight = Math.exp(-(i / 6) / tau);
+    const mix = (transport: number, forecast: number) =>
+      weight * transport + (1 - weight) * forecast;
+    const blendedTotal = mix(1 - clear, total);
     return {
       time: new Date(initial + i * tenMinutes).toISOString(),
       nowcast: { low, mid, high, clear, total: 1 - clear },
-      model: {
-        low: modelCover(1),
-        mid: modelCover(2),
-        high: modelCover(3),
-        total,
-        clear: 1 - total,
+      model,
+      blend: {
+        low: mix(low, model.low),
+        mid: mix(mid, model.mid),
+        high: mix(high, model.high),
+        total: blendedTotal,
+        clear: 1 - blendedTotal,
       },
       jet_ms,
       seeing: jet_ms < 20 ? 'good' : jet_ms > 35 ? 'poor' : 'fair',
     };
   });
 }
+
+function blendedWindow(site: SiteSample[]): Nowcast['best_window'] {
+  let start = 0;
+  let bestStart = 0;
+  let bestLength = 0;
+  site.forEach((sample, i) => {
+    if (sample.blend.clear < 0.7 || sample.seeing === 'poor') {
+      start = i + 1;
+      return;
+    }
+    const length = i - start + 1;
+    if (length > bestLength) {
+      bestStart = start;
+      bestLength = length;
+    }
+  });
+  if (!bestLength) return null;
+  const stretch = site.slice(bestStart, bestStart + bestLength);
+  return {
+    start: stretch[0].time,
+    end: stretch[stretch.length - 1].time,
+    mean_clear:
+      stretch.reduce((sum, sample) => sum + sample.blend.clear, 0) / bestLength,
+    seeing: stretch.some((sample) => sample.seeing === 'fair') ? 'fair' : 'good',
+  };
+}
+
 export function listNowcasts() {
   tick();
   const now = Date.now();
@@ -168,6 +213,7 @@ export function listNowcasts() {
       record.message = 'A cloud layer run failed or was removed.';
     } else if (children.every((r) => r?.status === 'done')) {
       record.site = samples(record, children as Run[]);
+      record.best_window = blendedWindow(record.site);
       record.status = 'done';
     } else if (children.some((r) => r?.status === 'running' || r?.status === 'done'))
       record.status = 'running';

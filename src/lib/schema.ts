@@ -322,7 +322,10 @@ export interface paths {
      * @description Uses hourly Open-Meteo low, mid and high cloud cover and winds at 850, 500 and 300 hPa.
      *     Three FIFO runs transport the initial cloud layers on a local grid with zero-gradient edges.
      *     Transport omits cloud formation, dissipation and vertical motion. It is most useful for a few hours,
-     *     especially before air from outside the domain reaches the site. Grid footprints must stay short of the poles.
+     *     especially before air from outside the domain reaches the site. The blend starts with transport and gives
+     *     increasing weight to the Open-Meteo forecast as lead time grows. The transport weight is exp(−t/τ), where t
+     *     is hours from data_time and τ is blend_tau_hours. At t = τ, transport contributes about 37%.
+     *     Grid footprints must stay short of the poles.
      *     Coordinates of the site and surrounding grid are sent to Open-Meteo. A failed wind-file probe or
      *     unavailable forecast yields an error record with a diagnostic. Attribute model data to Open-Meteo.
      */
@@ -592,6 +595,11 @@ export interface components {
        * @default 96
        */
       resolution?: number;
+      /**
+       * @description E-folding time in hours for the transport weight in the blend.
+       * @default 2
+       */
+      blend_tau_hours?: number;
     };
     CloudFraction: number;
     SkyCover: {
@@ -630,6 +638,8 @@ export interface components {
             nowcast: components['schemas']['SkyCover'];
             /** @description Open-Meteo site layers and its own total, linearly interpolated between UTC hours. */
             model: components['schemas']['SkyCover'];
+            /** @description Exponentially weighted transport and model values for each layer and for total. Clear is one minus blended total. */
+            blend: components['schemas']['SkyCover'];
             /** @description Hourly 250 hPa wind speed in m/s held until the next hour. */
             jet_ms: number;
             /**
@@ -639,6 +649,26 @@ export interface components {
             seeing: 'good' | 'fair' | 'poor';
           }[]
         | null;
+      /** @description Longest stretch of consecutive ten-minute samples with blended clear fraction at least 0.70 and good or fair seeing. Ties go to the earliest stretch. Null until done or when no sample qualifies. */
+      best_window: {
+        /**
+         * Format: date-time
+         * @description Time of the first qualifying sample.
+         */
+        start: string;
+        /**
+         * Format: date-time
+         * @description Time of the last qualifying sample (inclusive).
+         */
+        end: string;
+        /** @description Mean blended clear fraction across the stretch. */
+        mean_clear: components['schemas']['CloudFraction'];
+        /**
+         * @description Worst seeing category across the stretch.
+         * @enum {string}
+         */
+        seeing: 'good' | 'fair';
+      } | null;
       /** @description Local cell-centred equirectangular grid. The site is at fractional indices ((nx−1)/2, (ny−1)/2). */
       grid: {
         nx: number;
