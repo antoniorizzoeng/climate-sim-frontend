@@ -1,20 +1,21 @@
 .sky-map-tools {
+  margin: 0;
   padding: 14px 20px 0;
 }
-.sky-map-settings {
+.sky-place-picker {
   display: grid;
   gap: 8px;
-  margin-top: 10px;
 }
-.sky-map-tools .sky-save {
-  margin-top: 8px;
+.sky-map-tools a {
+  color: var(--accent);
+  text-underline-offset: 3px;
 }
-.sky-map-settings ul {
+.sky-place-picker ul {
   list-style: none;
   padding: 0;
   margin: 0;
 }
-.sky-map-settings li button {
+.sky-place-picker li button {
   text-align: left;
   padding: 5px 8px;
   text-decoration: underline;

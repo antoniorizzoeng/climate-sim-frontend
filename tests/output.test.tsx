@@ -85,7 +85,7 @@ it('polls a queued GIF export after Retry-After and downloads only the finished 
   expect(queries).toHaveLength(1);
   await waitFor(() => expect(downloads).toEqual(['simulation.gif']), { timeout: 6000 });
   expect(times[1] - times[0]).toBeGreaterThanOrEqual(950);
-  expect(button).toBeEnabled();
+  await waitFor(() => expect(button).toBeEnabled());
   expect(queries.map((query) => Object.fromEntries(query))).toEqual(
     Array.from({ length: 2 }, () => ({
       colormap: 'inferno',
@@ -140,7 +140,9 @@ it('shows export failure, then allows downloading the native frame and NetCDF re
     projection: 'mean',
   });
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Result.nc' }));
+  const result = screen.getByRole('button', { name: 'Result.nc' });
+  await waitFor(() => expect(result).toBeEnabled());
+  fireEvent.click(result);
   await waitFor(() => expect(downloads).toEqual(['frame-2.png', 'result.nc']));
   await waitFor(() => expect(revokeUrl).toHaveBeenCalledTimes(2), { timeout: 2000 });
 });

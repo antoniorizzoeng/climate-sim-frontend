@@ -2,29 +2,26 @@ import { useState, useCallback } from 'react';
 import { Crosshair, LocateFixed, Play, BookmarkPlus } from 'lucide-react';
 import {
   elevationLimits,
-  loadSites,
   reachesPole,
   skyDefaults,
-  storeSites,
   validCoordinates,
   validElevation,
   type Nowcast,
   type NowcastParams,
-  type SavedSite,
 } from '@/lib/sky';
 
-import { MapSettings } from './MapSettings';
+import { mapsSettingsHref, navigate } from '@/lib/navigation';
+import { loadSites, storeSites, useSavedSites } from '@/lib/settings';
+import { PlacePicker } from './PlacePicker';
 import { formatElevation } from './ObserverCloud';
 export function SitePicker({
   busy,
   run,
   mapKey = '',
-  onKey,
   siteElevation,
 }: {
   busy: boolean;
   mapKey?: string;
-  onKey?: (s: string) => void;
   siteElevation?: Nowcast['site_elevation'];
   run: (params: NowcastParams) => void;
 }) {
@@ -35,8 +32,8 @@ export function SitePicker({
   const [radius, setRadius] = useState(String(skyDefaults.radius_km)),
     [hours, setHours] = useState(String(skyDefaults.hours)),
     [resolution, setResolution] = useState(String(skyDefaults.resolution));
-  const [sites, setSites] = useState<SavedSite[]>(loadSites),
-    [notice, setNotice] = useState(''),
+  const sites = useSavedSites();
+  const [notice, setNotice] = useState(''),
     [locating, setLocating] = useState(false);
   const [windowMode, setWindowMode] = useState<'tonight' | 'now'>('tonight');
   const choose = useCallback((lat: number, lon: number) => {
@@ -78,7 +75,6 @@ export function SitePicker({
     };
     const next = [...loadSites().filter((s) => s.name !== site.name), site];
     if (storeSites(next)) {
-      setSites(next);
       setNotice('Site saved on this device.');
     } else
       setNotice('This browser could not save the site. You can still run a nowcast.');
@@ -91,14 +87,38 @@ export function SitePicker({
           Observing site
         </h2>
       </header>
-      {onKey && (
-        <MapSettings
-          mapKey={mapKey}
-          onKey={onKey}
-          lat={coordinatesValid ? +lat : null}
-          lon={coordinatesValid ? +lon : null}
-          choose={choose}
-        />
+      {mapKey ? (
+        <div className="sky-map-tools">
+          <PlacePicker
+            key={mapKey}
+            mapKey={mapKey}
+            lat={coordinatesValid ? +lat : null}
+            lon={coordinatesValid ? +lon : null}
+            choose={choose}
+          />
+        </div>
+      ) : (
+        <p className="hint sky-map-tools">
+          Add a MapTiler key in{' '}
+          <a
+            href={mapsSettingsHref}
+            onClick={(event) => {
+              if (
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey
+              )
+                return;
+              event.preventDefault();
+              navigate('settings', 'maps');
+            }}
+          >
+            Settings
+          </a>{' '}
+          to enable maps and place search.
+        </p>
       )}
       <form
         className="sky-body control-stack"
@@ -198,9 +218,7 @@ export function SitePicker({
         <p className="hint">
           {process.env.NEXT_PUBLIC_DEMO_BASE_PATH
             ? 'Demo nowcasts use simulated weather and keep site coordinates in the browser.'
-            : 'Running or refreshing sends the site and surrounding grid coordinates to Open-Meteo through the backend.'}{' '}
-          With a map key, place searches and map tiles go directly to MapTiler with your
-          key.
+            : 'Running or refreshing sends the site and surrounding grid coordinates to Open-Meteo through the backend.'}
         </p>
         <div>
           <h3>Save this site</h3>

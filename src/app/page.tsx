@@ -2,7 +2,7 @@
 import dynamic from 'next/dynamic';
 import { initialView, frameView, SpatialControls } from '@/components/SpatialControls';
 import Image from 'next/image';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
 import {
   Activity,
   ArrowRight,
@@ -18,6 +18,7 @@ import {
   Paintbrush,
   Play,
   RotateCcw,
+  Settings as SettingsIcon,
   SlidersHorizontal,
   Telescope,
   UploadCloud,
@@ -26,6 +27,8 @@ import {
 import { api, baseUrl, checked, message, saveDrawing, type Colors } from '@/lib/api';
 import {
   applySpacing,
+  changeUnits,
+  systems,
   resizePlane,
   numberText,
   colorTable,
@@ -59,6 +62,9 @@ import { Sky } from '@/components/sky/Sky';
 import { sameLayers, sourceLayer, gaussianSlice } from '@/lib/initialVolume';
 import { SliceChoice } from '@/components/SliceChoice';
 import { History } from '@/components/History';
+import { Settings } from '@/components/settings/Settings';
+import { closeSettings, navigate, useNavigation } from '@/lib/navigation';
+import { useUnitSystem } from '@/lib/settings';
 
 const InitialVolume = dynamic(() => import('@/components/InitialVolume'), {
   ssr: false,
@@ -85,8 +91,8 @@ export default function Workspace() {
   const [config, setConfig] = useState<Config>(),
     [connError, setConnError] = useState(false),
     [attempt, retry] = useState(0);
-  const [view, setView] = useState<'workspace' | 'history' | 'sky'>('workspace'),
-    [tab, setTab] = useState<'field' | 'conditions'>('field'),
+  const { view, section } = useNavigation();
+  const [tab, setTab] = useState<'field' | 'conditions'>('field'),
     [mode, setMode] = useState<'draw' | 'upload'>('draw');
   const [plane, setPlane] = useState(() => makePlane()),
     [brush, setBrush] = useState(defaultBrush),
@@ -99,8 +105,26 @@ export default function Workspace() {
   const uploaded = useUploadPlane(selection, previewMap),
     stats = uploaded.stats,
     fill = fillOverride ?? (stats?.mean != null ? String(stats.mean) : '');
-  const [conditions, setConditions] = useState<Conditions>(defaults),
-    [busy, setBusy] = useState(false),
+  const defaultUnits = useUnitSystem();
+  const [editedConditions, setEditedConditions] = useState<Conditions>();
+  const newConditions = useMemo(
+    () => changeUnits(defaults, systems[defaultUnits], true),
+    [defaultUnits],
+  );
+  const model = editedConditions ?? newConditions;
+  const conditions = useMemo(() => {
+    if (model.bc || !config) return model;
+    const choices = config.supported_boundary_conditions;
+    const first = choices.includes('dirichlet') ? 'dirichlet' : choices[0];
+    return { ...model, bc: { left: first, right: first, top: first, bottom: first } };
+  }, [config, model]);
+  function setConditions(next: SetStateAction<Conditions>) {
+    setEditedConditions((old) => {
+      if (typeof next !== 'function') return next;
+      return next(old?.bc ? old : { ...(old ?? conditions), bc: conditions.bc });
+    });
+  }
+  const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [warnings, setWarnings] = useState<string[]>([]);
   const saved = useRef<{ plane: Plane; field: Field } | null>(null),
@@ -150,20 +174,8 @@ export default function Workspace() {
       })
       .then((c) => {
         if (!active) return;
-        if (
-          new URLSearchParams(window.location.search).has('history_tab') &&
-          attempt === 0
-        )
-          setView('history');
         setConfig(c);
         setConnError(false);
-        const first = c.supported_boundary_conditions.includes('dirichlet')
-          ? 'dirichlet'
-          : c.supported_boundary_conditions[0];
-        setConditions((m) => ({
-          ...m,
-          bc: m.bc ?? { left: first, right: first, top: first, bottom: first },
-        }));
       })
       .catch(() => {
         if (active) setConnError(true);
@@ -261,7 +273,7 @@ export default function Workspace() {
     select({ field, variable: field.default_var, index: {} });
     setMode('upload');
     setTab('field');
-    setView('workspace');
+    navigate('workspace');
   }
   function edit(p: Plane) {
     setPlane(p);
@@ -279,6 +291,7 @@ export default function Workspace() {
     (mode === 'draw' || (!!selection && !needFill && !!uploaded.ready));
   async function launch() {
     if (!canStart) return;
+    setEditedConditions(conditions);
     setBusy(true);
     setError('');
     try {
@@ -459,7 +472,7 @@ export default function Workspace() {
     <>
       <header className="app-header">
         <div className="shell topbar">
-          <a href="#workspace" className="brand" onClick={() => setView('workspace')}>
+          <a href="#workspace" className="brand" onClick={() => navigate('workspace')}>
             <span className="brand-icon">
               <Waves size={25} />
             </span>
@@ -469,7 +482,7 @@ export default function Workspace() {
             <button
               aria-current={view === 'workspace' ? 'page' : undefined}
               className={view === 'workspace' ? 'active' : ''}
-              onClick={() => setView('workspace')}
+              onClick={() => navigate('workspace')}
             >
               <LayoutDashboard size={15} />
               Workspace
@@ -477,7 +490,7 @@ export default function Workspace() {
             <button
               aria-current={view === 'history' ? 'page' : undefined}
               className={view === 'history' ? 'active' : ''}
-              onClick={() => setView('history')}
+              onClick={() => navigate('history')}
             >
               <HistoryIcon size={15} />
               History
@@ -485,23 +498,35 @@ export default function Workspace() {
             <button
               aria-current={view === 'sky' ? 'page' : undefined}
               className={view === 'sky' ? 'active' : ''}
-              onClick={() => setView('sky')}
+              onClick={() => navigate('sky')}
             >
               <Telescope size={15} />
               Sky
             </button>
           </nav>
-          <div className="connection">
-            <i className={'dot ' + (config ? 'green' : '')} />
-            {config
-              ? mockMode
-                ? 'Mock engine'
-                : 'Engine online'
-              : connError
+          <div className="header-tools">
+            <div className="connection">
+              <i className={'dot ' + (config ? 'green' : '')} />
+              {config
                 ? mockMode
-                  ? 'Demo unavailable'
-                  : 'Engine offline'
-                : 'Connecting'}
+                  ? 'Mock engine'
+                  : 'Engine online'
+                : connError
+                  ? mockMode
+                    ? 'Demo unavailable'
+                    : 'Engine offline'
+                  : 'Connecting'}
+            </div>
+            <button
+              className="header-settings"
+              aria-label="Settings"
+              aria-current={view === 'settings' ? 'page' : undefined}
+              onClick={() =>
+                view === 'settings' ? closeSettings() : navigate('settings')
+              }
+            >
+              <SettingsIcon size={19} />
+            </button>
           </div>
         </div>
       </header>
@@ -517,14 +542,18 @@ export default function Workspace() {
                 ? 'Simulation history'
                 : view === 'sky'
                   ? 'Observing sky'
-                  : 'Simulation workspace'}
+                  : view === 'settings'
+                    ? 'Settings'
+                    : 'Simulation workspace'}
             </h1>
             <p>
               {view === 'history'
                 ? 'Reopen fields, inspect past runs, and recover archived experiments.'
                 : view === 'sky'
                   ? 'Track cloud cover and seeing at your observing site.'
-                  : 'Create an initial field, configure the solver, and explore its evolution.'}
+                  : view === 'settings'
+                    ? 'Manage your Climate Sim preferences.'
+                    : 'Create an initial field, configure the solver, and explore its evolution.'}
             </p>
           </div>
           {view === 'workspace' && !run && (
@@ -554,7 +583,7 @@ export default function Workspace() {
             />
           )}
         </div>
-        {connError && (
+        {connError && view !== 'settings' && (
           <div className="notice error" role="alert">
             {mockMode ? (
               <>
@@ -595,7 +624,9 @@ export default function Workspace() {
             }}
           />
         )}
-        {view === 'sky' ? (
+        {view === 'settings' ? (
+          <Settings section={section} />
+        ) : view === 'sky' ? (
           <Sky online={!!config} />
         ) : view === 'history' ? (
           config ? (
@@ -604,7 +635,7 @@ export default function Workspace() {
               openField={openField}
               openRun={(r) => {
                 inspectRun(r);
-                setView('workspace');
+                navigate('workspace');
               }}
             />
           ) : (

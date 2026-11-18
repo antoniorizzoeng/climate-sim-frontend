@@ -57,14 +57,6 @@ export function History({
   useEffect(() => {
     writeHistoryQuery(query, tab);
   }, [query, tab]);
-  useEffect(
-    () => () => {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('history_tab');
-      window.history.replaceState(window.history.state, '', url);
-    },
-    [],
-  );
   function change<K extends keyof HistoryQuery>(key: K, value: HistoryQuery[K]) {
     setDraft((old) => ({ ...old, [key]: value }));
   }
