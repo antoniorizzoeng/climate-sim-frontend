@@ -6,6 +6,8 @@
 [![CodeQL status](https://github.com/antoniorizzoeng/climate-sim-frontend/actions/workflows/codeql.yml/badge.svg)](https://github.com/antoniorizzoeng/climate-sim-frontend/actions/workflows/codeql.yml)
 [![License AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-52475e)](LICENSE)
 
+[Live demo](https://antoniorizzoeng.github.io/climate-sim-frontend/) · Try mock simulations and Sky nowcasts entirely in your browser without the MPI engine or live weather data. Optional maps use your own MapTiler key.
+
 <p align="center">
   <img src="docs/assets/crosswind.gif" width="820" alt="A luminous orange plume moves to the right and diffuses against a dark field."/>
   <br/>

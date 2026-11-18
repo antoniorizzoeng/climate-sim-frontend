@@ -216,7 +216,11 @@ export function SkyChart({ record }: { record?: ChartRecord }) {
           <div className="line-legend">
             {hasBlend && <strong className="blend-line">Blend (recommended)</strong>}
             <span className="nowcast-line">Nowcast (wind transport)</span>
-            <span className="model-line">Model forecast (Open-Meteo)</span>
+            <span className="model-line">
+              {process.env.NEXT_PUBLIC_DEMO_BASE_PATH
+                ? 'Model forecast (simulated)'
+                : 'Model forecast (Open-Meteo)'}
+            </span>
           </div>
         </div>
         {hasBlend && (

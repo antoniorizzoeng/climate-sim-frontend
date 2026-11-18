@@ -3,9 +3,12 @@ import type { paths } from './schema';
 import type { Plane, ColorMap, FrameView, Volume } from './model';
 import { encodePlane } from './model';
 
-export const baseUrl = (
-  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-).replace(/\/$/, '');
+const demoBasePath = process.env.NEXT_PUBLIC_DEMO_BASE_PATH;
+export const baseUrl = demoBasePath
+  ? (typeof window === 'undefined' ? '' : window.location.origin) +
+    demoBasePath +
+    '/mock-api'
+  : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 export const api = createClient<paths>({
   baseUrl,
   fetch: (request) => globalThis.fetch(request),
