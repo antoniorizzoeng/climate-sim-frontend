@@ -22,7 +22,11 @@ const run: Run = {
 };
 const server = setupServer(...handlers);
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 afterAll(() => server.close());
 function Transport({ r }: { r: Run }) {
   const [n, set] = useState(0);
@@ -152,4 +156,73 @@ it('holds the last decoded frame during a slow seek and never refetches the pend
   release();
   expect(await screen.findByRole('img', { name: 'Simulation frame 2' })).toBe(current);
   expect(delayed).toHaveBeenCalledTimes(1);
+});
+
+it('limits prefetch to three upcoming frames and aborts requests left behind by a seek', async () => {
+  mockPlanes();
+  const held = Promise.withResolvers<void>();
+  const requests = new Map<number, AbortSignal>();
+  server.use(
+    http.get(baseUrl + '/runs/:id/frames/:n/values', async ({ params, request }) => {
+      const index = Number(params.n);
+      requests.set(index, request.signal);
+      if (index !== 0 && index !== 5) await held.promise;
+      return new HttpResponse(new Float32Array(48).fill(index).buffer, {
+        headers: { 'X-Nx': '8', 'X-Ny': '6' },
+      });
+    }),
+  );
+  const onPresent = vi.fn();
+  const props = {
+    run: { ...run, frames: 7 },
+    colors: { colormap: 'inferno' as const },
+    range: [0, 5],
+    onRead: vi.fn(),
+    onPresent,
+    readout: '',
+  };
+  const view = render(<Player {...props} n={0} />);
+  try {
+    await screen.findByRole('img', { name: 'Simulation frame 1' });
+    await waitFor(() => expect([...requests.keys()].sort()).toEqual([0, 1, 2, 3]));
+    view.rerender(<Player {...props} n={5} />);
+    await screen.findByRole('img', { name: 'Simulation frame 6' });
+    for (const index of [1, 2, 3]) expect(requests.get(index)?.aborted).toBe(true);
+    expect(onPresent.mock.calls.map(([index]) => index)).toEqual([0, 5]);
+    await waitFor(() => expect(requests.has(6)).toBe(true));
+    view.unmount();
+    expect(requests.get(6)?.aborted).toBe(true);
+  } finally {
+    held.resolve();
+  }
+});
+
+it('retries the selected frame after a malformed grid response', async () => {
+  mockPlanes();
+  const frame = vi
+    .fn()
+    .mockReturnValueOnce(
+      new HttpResponse(new ArrayBuffer(4), { headers: { 'X-Nx': '8', 'X-Ny': '6' } }),
+    )
+    .mockReturnValueOnce(
+      new HttpResponse(new Float32Array(48).fill(1).buffer, {
+        headers: { 'X-Nx': '8', 'X-Ny': '6' },
+      }),
+    );
+  server.use(http.get(baseUrl + '/runs/:id/frames/0/values', frame));
+  render(
+    <Player
+      run={run}
+      n={0}
+      colors={{ colormap: 'inferno' }}
+      range={[0, 2]}
+      onRead={vi.fn()}
+      onPresent={vi.fn()}
+      readout=""
+    />,
+  );
+  expect(await screen.findByRole('alert')).toHaveTextContent('Frame unavailable.');
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(await screen.findByRole('img', { name: 'Simulation frame 1' })).toBeVisible();
+  expect(frame).toHaveBeenCalledTimes(2);
 });

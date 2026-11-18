@@ -22,10 +22,17 @@ export function Output({
   config: Config;
 }) {
   const [rangeDraft, setRangeDraft] = useState<[string, string] | null>(null);
+  const displayRange = cleanRange(run.display_range);
   const [min, max] = rangeDraft ?? [
-    String(colors.vmin ?? cleanRange(run.display_range)?.[0] ?? 0),
-    String(colors.vmax ?? cleanRange(run.display_range)?.[1] ?? 1),
+    String(colors.vmin ?? displayRange?.[0] ?? 0),
+    String(colors.vmax ?? displayRange?.[1] ?? 1),
   ];
+  const constantDefault =
+    displayRange !== null &&
+    !rangeDraft &&
+    colors.vmin === undefined &&
+    colors.vmax === undefined &&
+    displayRange[0] === displayRange[1];
   const [format, setFormat] = useState<'mp4' | 'gif'>('mp4'),
     [fps, setFps] = useState(12),
     [job, setJob] = useState(''),
@@ -117,11 +124,9 @@ export function Output({
           <DecimalInput value={max} onEdit={(raw) => updateRange(min, raw)} />
         </label>
       </div>
-      {(+min >= +max || !min || !max) &&
-        !(
-          colors.vmin === undefined &&
-          cleanRange(run.display_range)?.[0] === cleanRange(run.display_range)?.[1]
-        ) && <p className="hint">Enter a minimum below the maximum.</p>}
+      {!constantDefault && (+min >= +max || !min || !max) && (
+        <p className="hint">Enter a minimum below the maximum.</p>
+      )}
       <button
         className="subtle"
         onClick={() => {

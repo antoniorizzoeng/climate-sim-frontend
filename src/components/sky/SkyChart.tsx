@@ -83,7 +83,8 @@ export function SkyChart({ record }: { record?: ChartRecord }) {
   const windowEdges =
     startIndex < 0 || endIndex < 0 ? [] : [...new Set([startIndex, endIndex])];
   const hasBlend = site.every((sample) => sample.blend);
-  const cover = (sample: ChartSample) => sample.blend ?? sample.nowcast;
+  const cover = (sample: ChartSample) =>
+    (hasBlend ? sample.blend : undefined) ?? sample.nowcast;
   const coverLabel = hasBlend ? 'Blended cloud cover' : 'Nowcast cloud cover';
   const tau = record.params.blend_tau_hours ?? defaultBlendTauHours;
   const last = site.length - 1;

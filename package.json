@@ -11,6 +11,7 @@
     "api:generate": "node scripts/generate-api.mjs",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:fullstack": "bash scripts/test-e2e-fullstack.sh",
     "format": "prettier --check src scripts tests e2e-fullstack *.ts *.mts *.mjs package.json tsconfig.json README.md CONTRIBUTING.md docker-compose.e2e.yml .github/workflows/{ci,e2e}.yml"
@@ -35,6 +36,7 @@
     "@types/react-dom": "^19",
     "@types/three": "0.187.0",
     "@vitejs/plugin-react": "^6.3.0",
+    "@vitest/coverage-v8": "5.1.0",
     "axe-core": "^4.10.3",
     "eslint": "^9",
     "eslint-config-next": "16.4.6",

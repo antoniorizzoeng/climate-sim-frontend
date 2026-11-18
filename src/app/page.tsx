@@ -93,6 +93,7 @@ export default function Workspace() {
     [colors, setColors] = useState<Colors>(emptyColors),
     [readout, setReadout] = useState(''),
     [pollAttempt, retryPoll] = useState(0);
+  const inspectedRunId = useRef<string | null>(null);
   const visualColumn = useRef<HTMLDivElement>(null);
   const [spatial, setSpatial] = useState(initialView(1));
   const [preset, setPreset] = useState<'gaussian_hotspot'>();
@@ -167,6 +168,7 @@ export default function Workspace() {
     clearReview();
   }
   function inspectRun(r: Run, play = false) {
+    inspectedRunId.current = r.id;
     setAutoplay(play && !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     setPresented(-1);
     setRun(r);
@@ -177,25 +179,25 @@ export default function Workspace() {
     setPollError('');
     clearReview();
   }
+  function clearRun() {
+    inspectedRunId.current = null;
+    setRun(null);
+    setN(0);
+    setReadout('');
+  }
   function forget(id: string) {
     if (saved.current?.field.id === id) saved.current = null;
     if (selection?.field.id === id) {
       setSelection(null);
       setFill(null);
     }
-    if (run?.id === id) {
-      setRun(null);
-      setN(0);
-      setReadout('');
-    }
+    if (inspectedRunId.current === id) clearRun();
     clearReview();
   }
   function openField(field: Field) {
-    setN(0);
-    setReadout('');
+    clearRun();
     select({ field, variable: field.default_var, index: {} });
     setMode('upload');
-    setRun(null);
     setTab('field');
     setView('workspace');
   }
@@ -276,12 +278,12 @@ export default function Workspace() {
       checked(
         await api.DELETE('/runs/{runId}', { params: { path: { runId: run.id } } }),
       );
-      setRun(null);
-      setN(0);
-      setReadout('');
-      clearReview();
+      if (inspectedRunId.current === run.id) {
+        clearRun();
+        clearReview();
+      }
     } catch (e) {
-      setError(message(e));
+      if (inspectedRunId.current === run.id) setError(message(e));
     } finally {
       setBusy(false);
     }
@@ -609,9 +611,7 @@ export default function Workspace() {
                     <button
                       className="secondary"
                       onClick={() => {
-                        setRun(null);
-                        setN(0);
-                        setReadout('');
+                        clearRun();
                         clearReview();
                       }}
                     >
