@@ -184,6 +184,7 @@ it('reviews warnings before submission and switches a completed 3D run between v
   await screen.findByRole('img', { name: 'Simulation frame 1' });
   fireEvent.click(screen.getByRole('button', { name: 'Volume' }));
   expect(await screen.findByText(/WebGL2 is unavailable/)).toBeVisible();
+  expect(screen.getByText(/Use graphics acceleration when available/)).toBeVisible();
   expect(screen.getByText(/X max projection for PNG/)).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Slice' }));
   await screen.findByRole('img', { name: 'Simulation frame 1' });
