@@ -67,6 +67,7 @@ it('plots explicit server windows using matching instants and presents blended t
       record={{
         ...record,
         site,
+        night: { dusk: site[0].time, dawn: site[2].time, moon: [] },
         best_window: {
           start: '2026-01-02T00:40:00+01:00',
           end: site[2].time,
@@ -85,9 +86,9 @@ it('plots explicit server windows using matching instants and presents blended t
     'points',
     '0,25 500,25 1000,25',
   );
-  expect(chart.querySelector('rect')).toHaveAttribute('x', '500');
-  expect(chart.querySelector('rect')).toHaveAttribute('width', '500');
-  fireEvent.click(screen.getByText(/Ten-minute site samples ·/));
+  expect(chart.querySelector('.window-highlight')).toHaveAttribute('x', '500');
+  expect(chart.querySelector('.window-highlight')).toHaveAttribute('width', '500');
+  fireEvent.click(screen.getByText(/Ten-minute site samples/));
   const table = screen.getByRole('table');
   expect(
     within(table).getByRole('columnheader', { name: 'Blend clear' }),
@@ -112,10 +113,10 @@ it('uses nowcast cover consistently for legacy samples and respects an explicit 
     <SkyChart record={{ ...record, site, best_window: undefined }} />,
   );
   const chart = screen.getByRole('img', { name: /Clear-sky percentage/ });
-  expect(chart.querySelector('rect')).toHaveAttribute('width', '1000');
+  expect(chart.querySelector('.window-highlight')).toBeNull();
   expect(chart.querySelector('.blend-line')).toBeNull();
   expect(screen.getByRole('heading', { name: 'Nowcast cloud cover' })).toBeVisible();
-  fireEvent.click(screen.getByText(/Ten-minute site samples ·/));
+  fireEvent.click(screen.getByText(/Ten-minute site samples/));
   const table = within(screen.getByRole('table'));
   expect(
     table.queryByRole('columnheader', { name: 'Blend clear' }),
@@ -125,7 +126,7 @@ it('uses nowcast cover consistently for legacy samples and respects an explicit 
   ).toHaveTextContent('25%');
   view.rerender(<SkyChart record={{ ...record, site, best_window: null }} />);
   expect(screen.getByText('No qualifying stretch')).toBeVisible();
-  expect(chart.querySelector('rect')).toBeNull();
+  expect(chart.querySelector('.window-highlight')).toBeNull();
 });
 
 it('keeps nowcasting available when saved sites cannot be read or written', () => {
@@ -140,7 +141,7 @@ it('keeps nowcasting available when saved sites cannot be read or written', () =
   expect(screen.queryByLabelText('Saved sites')).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Latitude (°)'), { target: { value: '42' } });
   fireEvent.change(screen.getByLabelText('Longitude (°)'), { target: { value: '12' } });
-  fireEvent.click(screen.getByText('Save this site'));
+  expect(screen.getByLabelText('Site name')).toBeVisible();
   fireEvent.change(screen.getByLabelText('Site name'), {
     target: { value: 'Observatory' },
   });
@@ -153,7 +154,7 @@ it('keeps nowcasting available when saved sites cannot be read or written', () =
     lat: 42,
     lon: 12,
     radius_km: 300,
-    hours: 6,
+    window: 'tonight',
     resolution: 96,
   });
 });
@@ -163,7 +164,7 @@ it('persists a named site and restores its coordinates on a fresh visit', () => 
   const view = render(<SitePicker busy={false} run={run} />);
   fireEvent.change(screen.getByLabelText('Latitude (°)'), { target: { value: '-23' } });
   fireEvent.change(screen.getByLabelText('Longitude (°)'), { target: { value: '15' } });
-  fireEvent.click(screen.getByText('Save this site'));
+  expect(screen.getByLabelText('Site name')).toBeVisible();
   fireEvent.change(screen.getByLabelText('Site name'), {
     target: { value: '  Dark site  ' },
   });
@@ -171,9 +172,7 @@ it('persists a named site and restores its coordinates on a fresh visit', () => 
   expect(screen.getByRole('status')).toHaveTextContent('Site saved');
   view.unmount();
   render(<SitePicker busy={false} run={run} />);
-  fireEvent.change(screen.getByLabelText('Saved sites'), {
-    target: { value: 'Dark site' },
-  });
+  fireEvent.click(screen.getByRole('button', { name: 'Dark site' }));
   expect(screen.getByLabelText('Latitude (°)')).toHaveValue(-23);
   expect(screen.getByLabelText('Longitude (°)')).toHaveValue(15);
 });

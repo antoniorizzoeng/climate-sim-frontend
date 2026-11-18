@@ -10,11 +10,12 @@ test('runs a Sky nowcast and renders the three cloud layers', async ({ page }) =
   await page.getByRole('button', { name: 'Sky', exact: true }).click();
   await page.getByLabel('Latitude (°)').fill('28.76');
   await page.getByLabel('Longitude (°)').fill('-17.89');
+  await page.getByLabel('Forecast window').selectOption('now');
   await page.getByLabel('Hours', { exact: true }).fill('1');
   await page.getByLabel('Cells per side').fill('16');
   await page.getByRole('button', { name: 'Run nowcast' }).click();
 
-  const chart = page.getByRole('region', { name: 'Tonight at a glance' });
+  const chart = page.getByRole('region', { name: 'Next hours at a glance' });
   await expect(chart.getByText('Model forecast (Open-Meteo)')).toBeVisible({
     timeout: 60_000,
   });

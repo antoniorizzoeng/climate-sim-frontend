@@ -1,3 +1,4 @@
+import { captureThemes } from './theme-preview';
 import { mkdir } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
 
@@ -5,6 +6,12 @@ test('observing site → nowcast timeline → three synchronised layer movies', 
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
+  const external: string[] = [];
+  page.on('request', (req) => {
+    const host = new URL(req.url()).hostname;
+    if (host === 'maptiler.com' || host.endsWith('.maptiler.com'))
+      external.push(req.url());
+  });
   await page.goto('/');
   await expect(page.getByText('Mock engine')).toBeVisible();
   await page.clock.setSystemTime(new Date('2026-11-17T21:00:00Z'));
@@ -12,11 +19,9 @@ test('observing site → nowcast timeline → three synchronised layer movies', 
   await expect(page.getByLabel('Latitude (°)')).toHaveValue('');
   await page.getByLabel('Latitude (°)').fill('28.76');
   await page.getByLabel('Longitude (°)').fill('-17.89');
-  await page.getByText('Save this site', { exact: true }).click();
   await page.getByLabel('Site name').fill('Roque de los Muchachos');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await page.getByLabel('Saved sites').selectOption('Roque de los Muchachos');
-  await page.getByText('Save this site', { exact: true }).click();
+  await page.getByRole('button', { name: 'Roque de los Muchachos' }).click();
   await page.getByRole('button', { name: 'Run nowcast' }).click();
   const chart = page.getByRole('region', { name: 'Tonight at a glance' });
   await expect(chart.getByText('Blend (recommended)')).toBeVisible({
@@ -59,7 +64,7 @@ test('observing site → nowcast timeline → three synchronised layer movies', 
       })),
     );
     expect(issues).toEqual([]);
-    await page.screenshot({ path: 'artifacts/sky-' + width + '.png', fullPage: true });
+    await captureThemes(page, 'sky', width);
   }
   await page.getByRole('button', { name: 'Refresh nowcast' }).click();
   await expect(page.locator('.sky-recent li')).toHaveCount(2);
@@ -68,4 +73,5 @@ test('observing site → nowcast timeline → three synchronised layer movies', 
   await expect(page.locator('.sky-recent li')).toHaveCount(1);
   await page.locator('.sky-recent button').click();
   await expect(chart).toBeVisible();
+  expect(external).toEqual([]);
 });

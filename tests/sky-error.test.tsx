@@ -28,3 +28,43 @@ it('shows the diagnostic from a failed wind-file probe when reopening a nowcast'
     server.close();
   }
 });
+
+it('explains a polar 422 and keeps the next-hours option available', async () => {
+  const server = setupServer(
+    http.post(baseUrl + '/nowcasts', () =>
+      HttpResponse.json(
+        {
+          detail: [
+            {
+              msg: 'No astronomical darkness in the next 24 hours',
+              loc: ['body', 'window'],
+              type: 'value_error',
+            },
+          ],
+        },
+        { status: 422 },
+      ),
+    ),
+    ...handlers,
+  );
+  server.listen({ onUnhandledFrame: 'error' });
+  try {
+    render(<Sky online />);
+    fireEvent.change(screen.getByLabelText('Latitude (°)'), {
+      target: { value: '68' },
+    });
+    fireEvent.change(screen.getByLabelText('Longitude (°)'), {
+      target: { value: '16' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Run nowcast' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Choose Next hours or another site',
+    );
+    fireEvent.change(screen.getByLabelText('Forecast window'), {
+      target: { value: 'now' },
+    });
+    expect(screen.getByLabelText('Hours')).toBeEnabled();
+  } finally {
+    server.close();
+  }
+});

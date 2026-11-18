@@ -89,7 +89,7 @@ it('plots the blend and uses blended layers in the bands and sample table', () =
   expect(
     container.querySelector('.cover-bands polygon')?.getAttribute('points'),
   ).toContain('0,50');
-  fireEvent.click(screen.getByText(/Ten-minute site samples ·/));
+  fireEvent.click(screen.getByText(/Ten-minute site samples/));
   expect(screen.getByRole('columnheader', { name: 'Blend clear' })).toBeVisible();
   const secondSample = screen.getAllByRole('row')[2];
   const cells = within(secondSample).getAllByRole('cell');
@@ -99,16 +99,20 @@ it('plots the blend and uses blended layers in the bands and sample table', () =
 });
 
 it('uses the server window for the label and highlight, including an explicit null', () => {
-  const record = forecast();
+  const data = forecast();
+  const record = {
+    ...data,
+    night: { dusk: data.site[0].time, dawn: data.site.at(-1)!.time, moon: [] },
+  };
   const { container, rerender } = render(<SkyChart record={record} />);
   const { start, end } = record.best_window;
   expect(screen.getByText(clockTime(start) + ' – ' + clockTime(end))).toBeVisible();
-  const highlight = container.querySelector('.clear-plot rect');
+  const highlight = container.querySelector('.window-highlight');
   expect(Number(highlight?.getAttribute('x'))).toBeCloseTo(1000 / 3);
   expect(Number(highlight?.getAttribute('width'))).toBeCloseTo(1000 / 3);
   rerender(<SkyChart record={{ ...record, best_window: null }} />);
   expect(screen.getByText('No qualifying stretch')).toBeVisible();
-  expect(container.querySelector('.clear-plot rect')).toBeNull();
+  expect(container.querySelector('.window-highlight')).toBeNull();
 });
 
 it('falls back to transport data and the client window for an older response', () => {
@@ -214,7 +218,7 @@ it('only requests geolocation on click and sends coordinates only on Run', () =>
   expect(run).toHaveBeenCalledWith({
     lat: observatory.lat,
     lon: observatory.lon,
-    hours: 6,
+    window: 'tonight',
     radius_km: 300,
     resolution: 96,
   });
@@ -226,4 +230,91 @@ it('prevents running a grid that crosses a pole', () => {
   });
   expect(screen.getByRole('alert')).toHaveTextContent('poles');
   expect(screen.getByRole('button', { name: 'Run nowcast' })).toBeDisabled();
+});
+
+it('shades dusk to dawn, marks twilight, plots the Moon and clips the best window to dark samples', () => {
+  const record = forecast();
+  const site = record.site;
+  const night = {
+    dusk: site[1].time,
+    dawn: site[2].time,
+    moon: [
+      { time: site[1].time, altitude_deg: -45, illumination: 0.32 },
+      { time: site[2].time, altitude_deg: 45, illumination: 0.32 },
+    ],
+  };
+  const { container, rerender } = render(
+    <SkyChart
+      record={{
+        ...record,
+        night,
+        best_window: { ...record.best_window, start: site[0].time, end: site[3].time },
+      }}
+    />,
+  );
+  expect(
+    screen.getByText(clockTime(night.dusk) + ' – ' + clockTime(night.dawn)),
+  ).toBeVisible();
+  expect(
+    Number(container.querySelector('.night-band')?.getAttribute('width')),
+  ).toBeCloseTo(1000 / 3);
+  expect(
+    screen
+      .getByRole('img', { name: /Clear-sky percentage/ })
+      .querySelectorAll('.twilight-marker'),
+  ).toHaveLength(2);
+  expect(screen.getByText(/32% illuminated/)).toBeVisible();
+  expect(
+    container.querySelector('.moon-plot polyline')?.getAttribute('points'),
+  ).toMatch(/,75 .*?,25$/);
+  rerender(
+    <SkyChart
+      record={{
+        ...record,
+        night,
+        best_window: { ...record.best_window, start: site[0].time, end: site[0].time },
+      }}
+    />,
+  );
+  expect(screen.getByText('No qualifying stretch')).toBeVisible();
+  rerender(<SkyChart record={{ ...record, night: null }} />);
+  expect(screen.queryByText('Moon altitude')).toBeNull();
+  expect(
+    screen.getByText(clockTime(site[1].time) + ' – ' + clockTime(site[2].time)),
+  ).toBeVisible();
+});
+
+it('flips seeing help below a chip at the viewport top and moves it above when space permits', () => {
+  render(<SeeingStrip site={[sample(0)]} />);
+  const chip = screen.getByRole('img');
+  const rect = vi
+    .spyOn(chip, 'getBoundingClientRect')
+    .mockReturnValue(new DOMRect(8, 1, 65, 32));
+  fireEvent.focus(chip);
+  expect(screen.getByRole('tooltip')).toHaveStyle({ top: '37px' });
+  rect.mockReturnValue(new DOMRect(8, 100, 65, 32));
+  vi.spyOn(screen.getByRole('tooltip'), 'getBoundingClientRect').mockReturnValue(
+    new DOMRect(0, 0, 150, 25),
+  );
+  fireEvent(window, new Event('resize'));
+  expect(screen.getByRole('tooltip')).toHaveStyle({ top: '71px' });
+  fireEvent.keyDown(chip, { key: 'Escape' });
+  expect(screen.queryByRole('tooltip')).toBeNull();
+});
+
+it('offers the hours control and submits its horizon for Next hours', () => {
+  const run = vi.fn();
+  render(<SitePicker busy={false} run={run} />);
+  expect(screen.getByLabelText('Forecast window')).toHaveValue('tonight');
+  expect(screen.queryByLabelText('Hours')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Forecast window'), {
+    target: { value: 'now' },
+  });
+  fireEvent.change(screen.getByLabelText('Hours'), { target: { value: '4' } });
+  fireEvent.change(screen.getByLabelText('Latitude (°)'), { target: { value: '48' } });
+  fireEvent.change(screen.getByLabelText('Longitude (°)'), { target: { value: '12' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Run nowcast' }));
+  expect(run).toHaveBeenCalledWith(
+    expect.objectContaining({ window: 'now', hours: 4 }),
+  );
 });
