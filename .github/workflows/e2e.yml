@@ -1,0 +1,54 @@
+name: Full-stack E2E
+
+on:
+  pull_request:
+  schedule:
+    - cron: '23 3 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  fullstack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --only-shell chromium
+      - uses: docker/setup-buildx-action@v4
+      - uses: crazy-max/ghaction-github-runtime@v4
+      - name: Run full-stack tests
+        env:
+          E2E_NETWORK: '0'
+          E2E_COMPOSE_CACHE_FILE: .local/docker-compose.e2e-cache.yml
+          COMPOSE_BAKE: 'true'
+        run: |
+          mkdir -p .local
+          cat > "$E2E_COMPOSE_CACHE_FILE" <<'YAML'
+          services:
+            frontend:
+              build:
+                cache_from:
+                  - type=gha,scope=e2e-frontend
+                cache_to:
+                  - type=gha,scope=e2e-frontend,mode=max,ignore-error=true,timeout=2m
+            backend:
+              build:
+                cache_from:
+                  - type=gha,scope=e2e-backend
+                cache_to:
+                  - type=gha,scope=e2e-backend,mode=max,ignore-error=true,timeout=2m
+          YAML
+          timeout --kill-after=45s 22m npm run test:e2e:fullstack
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fullstack-e2e-failure
+          path: artifacts/e2e-fullstack/
