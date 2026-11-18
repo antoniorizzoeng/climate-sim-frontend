@@ -3,7 +3,7 @@ export default defineConfig({
   testDir: './tests/e2e',
   workers: 1,
   timeout: 60000,
-  use: { baseURL: 'http://127.0.0.1:3100', trace: 'retain-on-failure' },
+  use: { baseURL: 'http://127.0.0.1:3700', trace: 'retain-on-failure' },
   webServer: {
     command: 'npm run dev:mock -- --hostname 127.0.0.1 --port 3100',
     env: { NEXT_PUBLIC_API_URL: 'http://127.0.0.1:3100/mock-api' },

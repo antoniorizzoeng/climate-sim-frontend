@@ -63,6 +63,12 @@ import { History } from '@/components/History';
 const InitialVolume = dynamic(() => import('@/components/InitialVolume'), {
   ssr: false,
 });
+
+// matchMedia is missing in some embedded browsers and in jsdom; treat that as no match.
+function mediaMatches(query: string) {
+  return typeof window.matchMedia === 'function' && window.matchMedia(query).matches;
+}
+
 const VolumePlayer = dynamic(() => import('@/components/VolumePlayer'), {
   ssr: false,
   loading: () => (
@@ -168,7 +174,7 @@ export default function Workspace() {
   const runId = run?.id,
     status = run?.status;
   useEffect(() => {
-    if (runId && window.matchMedia('(max-width: 730px)').matches)
+    if (runId && mediaMatches('(max-width: 730px)'))
       visualColumn.current?.scrollIntoView({ block: 'start' });
   }, [runId]);
   useEffect(() => {
@@ -224,7 +230,7 @@ export default function Workspace() {
   }
   function inspectRun(r: Run, play = false) {
     inspectedRunId.current = r.id;
-    setAutoplay(play && !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    setAutoplay(play && !mediaMatches('(prefers-reduced-motion: reduce)'));
     setPresented(-1);
     setRun(r);
     setSpatial(initialView(r.resolved.nz ?? 1));
