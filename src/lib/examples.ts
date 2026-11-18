@@ -3,6 +3,9 @@ import { defaults, type Boundary, type Conditions, type Plane } from './model';
 type Example = {
   name: string;
   motion: string;
+  nz?: number;
+  vz?: number;
+  preset?: 'gaussian_hotspot';
   D: number;
   vx: number;
   vy: number;
@@ -71,9 +74,37 @@ export const examples: Example[] = [
     boundary: 'periodic',
     intensity: (x, y) => gaussian((x - 0.78) / 0.055, (y - 0.73) / 0.11),
   },
+  {
+    name: 'Rising plume',
+    motion: '3D · A warm core rises and drifts',
+    preset: 'gaussian_hotspot',
+    nz: 40,
+    vz: 0.65,
+    vx: 0.22,
+    vy: -0.08,
+    D: 0.035,
+    dt: 0.5,
+    intensity: (x, y) => gaussian((x - 0.5) / 0.05, (y - 0.5) / 0.05),
+  },
+  {
+    name: 'Smoke ring diffusion',
+    motion: '3D · A hollow ring softens',
+    nz: 12,
+    vz: 0,
+    vx: 0.04,
+    vy: 0.06,
+    D: 0.32,
+    dt: 0.4,
+    intensity: (x, y) =>
+      Math.exp(-0.5 * ((Math.hypot(x - 0.5, y - 0.5) - 0.28) / 0.043) ** 2),
+  },
 ];
 
-export function examplePlane(example: Example, nx = 128, ny = 64): Plane {
+export function examplePlane(
+  example: Example,
+  nx = example.nz ? (example.preset ? 40 : 64) : 128,
+  ny = example.nz ? nx : 64,
+): Plane {
   let seed = 109;
   const data = Float32Array.from({ length: nx * ny }, (_, i) => {
     seed = (Math.imul(1664525, seed) + 1013904223) >>> 0;
@@ -90,7 +121,16 @@ export function examplePlane(example: Example, nx = 128, ny = 64): Plane {
 }
 
 export function exampleConditions(
-  { D, vx, vy, dt, boundary = 'neumann' }: Example,
+  {
+    D,
+    vx,
+    vy,
+    dt,
+    nz,
+    vz,
+    preset,
+    boundary = preset ? 'periodic' : 'neumann',
+  }: Example,
   supported: Boundary[],
 ): Conditions {
   const edge = supported.includes(boundary)
@@ -104,9 +144,19 @@ export function exampleConditions(
     vx,
     vy,
     dt,
-    steps: 120,
-    frames: 41,
+    ...(nz && { nz, vz, dz: 1 }),
+    steps: nz ? 48 : 120,
+    frames: nz ? 25 : 41,
     processes: 1,
-    bc: { left: edge, right: edge, top: edge, bottom: edge },
+    bc: {
+      left: edge,
+      right: edge,
+      top: edge,
+      bottom: edge,
+      ...(nz && {
+        front: supported.includes('dirichlet') ? 'dirichlet' : edge,
+        back: supported.includes('dirichlet') ? 'dirichlet' : edge,
+      }),
+    },
   };
 }

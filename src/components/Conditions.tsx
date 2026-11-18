@@ -2,6 +2,8 @@ import { useId, useState } from 'react';
 import { ArrowUp, Wind } from 'lucide-react';
 import {
   dtMax,
+  clampTimeStep,
+  withLayers,
   numberText,
   type Conditions as Model,
   type Boundary,
@@ -13,13 +15,15 @@ const opposite = {
   right: 'left',
   top: 'bottom',
   bottom: 'top',
+  front: 'back',
+  back: 'front',
 } as const;
 const labels: Record<Boundary, string> = {
   dirichlet: 'Fixed (value 0 outside)',
   neumann: 'Insulated (zero gradient)',
   periodic: 'Wrap-around',
 };
-function NumberField({
+export function NumberField({
   label,
   value,
   update,
@@ -80,20 +84,21 @@ export function ConditionsForm({
   model,
   change,
   config,
+  volumeLayers,
 }: {
   model: Model;
   change: (m: Model) => void;
   config: Config;
+  volumeLayers?: number;
 }) {
   const limit = dtMax(model),
     [clamped, setClamped] = useState(false);
   const boundaryHint = useId();
   const supportsWrap = config.supported_boundary_conditions.includes('periodic');
   function update(next: Model) {
-    const max = dtMax(next);
-    const clamp = max !== null && next.dt > max;
-    setClamped(clamp);
-    change(clamp ? { ...next, dt: max } : next);
+    const stable = clampTimeStep(next);
+    setClamped(stable.dt < next.dt || (next.nz !== model.nz && next.dt < model.dt));
+    change(stable);
   }
   function edge(key: keyof typeof opposite, value: Boundary) {
     const pair = opposite[key],
@@ -102,7 +107,19 @@ export function ConditionsForm({
     update({ ...model, bc });
   }
   function field(
-    key: 'D' | 'vx' | 'vy' | 'dt' | 'steps' | 'frames' | 'dx' | 'dy' | 'processes',
+    key:
+      | 'dz'
+      | 'Dz'
+      | 'vz'
+      | 'D'
+      | 'vx'
+      | 'vy'
+      | 'dt'
+      | 'steps'
+      | 'frames'
+      | 'dx'
+      | 'dy'
+      | 'processes',
     label: string,
     min?: number,
     integer = false,
@@ -116,7 +133,11 @@ export function ConditionsForm({
         max={max}
         integer={integer}
         placeholder={
-          key === 'processes' ? `Auto · ${config.default_processes}` : undefined
+          key === 'Dz'
+            ? `Use D · ${model.D ?? 0}`
+            : key === 'processes'
+              ? `Auto · ${config.default_processes}`
+              : undefined
         }
         update={(v) => update({ ...model, [key]: v })}
       />
@@ -124,6 +145,38 @@ export function ConditionsForm({
   }
   return (
     <div className="control-stack">
+      <div className="segmented" role="group" aria-label="Simulation dimensions">
+        {[false, true].map((three) => (
+          <button
+            key={String(three)}
+            aria-pressed={!!model.nz === three}
+            onClick={() => update(withLayers(model, three ? (model.nz ?? 16) : 1))}
+          >
+            {three ? '3D' : '2D'}
+          </button>
+        ))}
+      </div>
+      {model.nz && (
+        <div className="input-grid">
+          {volumeLayers ? (
+            <label>
+              Layers nz
+              <input readOnly type="number" value={volumeLayers} />
+            </label>
+          ) : (
+            <NumberField
+              label="Layers nz"
+              value={model.nz}
+              min={2}
+              integer
+              update={(v) => update(withLayers(model, v!))}
+            />
+          )}
+          {field('dz', 'Grid spacing dz', Number.MIN_VALUE)}
+          {field('Dz', 'Vertical diffusion Dz', 0)}
+          {field('vz', 'Velocity vz')}
+        </div>
+      )}
       <div className="input-grid">
         {field('D', 'Diffusion D', 0)}
         {field('dt', 'Time step dt', Number.MIN_VALUE)}
@@ -139,7 +192,7 @@ export function ConditionsForm({
       <div className="wind">
         <Wind size={16} />
         <span>Flow velocity</span>
-        <b>{numberText(Math.hypot(model.vx ?? 0, model.vy ?? 0))}</b>
+        <b>{numberText(Math.hypot(model.vx ?? 0, model.vy ?? 0, model.vz ?? 0))}</b>
         <ArrowUp
           aria-label="Flow direction"
           size={20}
@@ -147,6 +200,20 @@ export function ConditionsForm({
             transform: `rotate(${(Math.atan2(model.vx ?? 0, model.vy ?? 0) * 180) / Math.PI}deg)`,
           }}
         />
+        {model.nz && (
+          <label className="vertical-flow">
+            Vertical flow
+            <input
+              type="range"
+              aria-label="Vertical flow"
+              min={-Math.max(2, Math.abs(model.vz ?? 0))}
+              max={Math.max(2, Math.abs(model.vz ?? 0))}
+              step={0.05}
+              value={model.vz ?? 0}
+              onChange={(e) => update({ ...model, vz: +e.target.value })}
+            />
+          </label>
+        )}
       </div>
       <div className="input-grid">
         {field('steps', 'Steps', 1, true, 2147483647)}
@@ -155,22 +222,24 @@ export function ConditionsForm({
       <div>
         <div className="section-label">Boundary conditions</div>
         <div className="input-grid">
-          {(Object.keys(opposite) as (keyof typeof opposite)[]).map((k) => (
-            <label key={k} className="capitalize">
-              {k} edge
-              <select
-                value={model.bc?.[k] ?? config.supported_boundary_conditions[0]}
-                onChange={(e) => edge(k, e.target.value as Boundary)}
-                aria-describedby={supportsWrap ? boundaryHint : undefined}
-              >
-                {config.supported_boundary_conditions.map((b) => (
-                  <option key={b} value={b}>
-                    {labels[b]}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ))}
+          {(Object.keys(opposite) as (keyof typeof opposite)[])
+            .filter((k) => model.nz || (k !== 'front' && k !== 'back'))
+            .map((k) => (
+              <label key={k} className="capitalize">
+                {k} edge
+                <select
+                  value={model.bc?.[k] ?? config.supported_boundary_conditions[0]}
+                  onChange={(e) => edge(k, e.target.value as Boundary)}
+                  aria-describedby={supportsWrap ? boundaryHint : undefined}
+                >
+                  {config.supported_boundary_conditions.map((b) => (
+                    <option key={b} value={b}>
+                      {labels[b]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
         </div>
         {supportsWrap && (
           <p className="hint" id={boundaryHint}>

@@ -1,6 +1,6 @@
 import createClient from 'openapi-fetch';
 import type { paths } from './schema';
-import type { Plane, ColorMap } from './model';
+import type { Plane, ColorMap, FrameView, Volume } from './model';
 import { encodePlane } from './model';
 
 export const baseUrl = (
@@ -75,6 +75,35 @@ export function decodeGrid(buffer: ArrayBuffer, headers: Headers): Plane {
     ),
   };
 }
+export function decodeVolume(buffer: ArrayBuffer, headers: Headers): Volume {
+  const [nx, ny, nz] = ['X-Nx', 'X-Ny', 'X-Nz'].map((h) => Number(headers.get(h)));
+  if (
+    ![nx, ny, nz].every((n) => Number.isInteger(n) && n >= 1 && n <= 128) ||
+    nx * ny * nz * 4 !== buffer.byteLength
+  )
+    throw new Error('Invalid float32 volume dimensions in the API response.');
+  // The wire format is always little-endian. Reuse the buffer on little-endian hosts.
+  const littleEndian = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+  const reader = new DataView(buffer);
+  return {
+    nx,
+    ny,
+    nz,
+    data: littleEndian
+      ? new Float32Array(buffer)
+      : Float32Array.from({ length: nx * ny * nz }, (_, i) =>
+          reader.getFloat32(i * 4, true),
+        ),
+  };
+}
+export async function loadVolume(id: string, n: number, signal: AbortSignal) {
+  const r = await api.GET('/runs/{runId}/frames/{n}/volume', {
+    params: { path: { runId: id, n }, query: { max_side: 96 } },
+    parseAs: 'arrayBuffer',
+    signal,
+  });
+  return decodeVolume(checked(r), r.response.headers);
+}
 export type Colors = { colormap: ColorMap; vmin?: number; vmax?: number };
 export async function frameBlob(
   id: string,
@@ -82,12 +111,13 @@ export async function frameBlob(
   colors: Colors,
   native = false,
   signal?: AbortSignal,
+  view?: FrameView,
 ) {
   return checked(
     await api.GET('/runs/{runId}/frames/{n}.png', {
       params: {
         path: { runId: id, n },
-        query: { ...colors, max_side: native ? undefined : 1024 },
+        query: { ...colors, ...view, max_side: native ? undefined : 1024 },
       },
       parseAs: 'blob',
       signal,

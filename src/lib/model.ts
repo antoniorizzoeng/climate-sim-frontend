@@ -6,13 +6,17 @@ export type Run = S['Run'];
 export type RequestBody = S['RunRequest'];
 export type Source = S['RunSource'];
 export type Config = S['ServerConfig'];
-export type Conditions = Omit<RequestBody, 'source'>;
+export type Conditions = Omit<RequestBody, 'source'> & { nz?: number };
 export type Boundary = S['BoundaryCondition'];
 export type ColorMap = S['Colormap'];
 export type Plane = { nx: number; ny: number; data: Float32Array };
+export type Volume = Plane & { nz: number };
+export type Axis = 'x' | 'y' | 'z';
+export type FrameView = { axis?: Axis; slice?: number; projection?: 'max' | 'mean' };
 export type PlaneSelection = {
   field: Field;
   variable: string;
+  volume?: boolean;
   index: Record<string, number>;
 };
 export type Pattern = 'Hotspot' | 'Stripes' | 'Noise' | 'Clear';
@@ -27,10 +31,49 @@ export const defaults: Conditions = {
   steps: 400,
   frames: 101,
 };
-export function dtMax({ vx = 0, vy = 0, dx = 1, dy = 1, D = 0 }: Conditions) {
-  const denominator =
-    Math.abs(vx) / dx + Math.abs(vy) / dy + 2 * D * (1 / dx ** 2 + 1 / dy ** 2);
+export function withLayers(model: Conditions, nz: number): Conditions {
+  const next = { ...model };
+  if (nz > 1) {
+    next.nz = nz;
+    next.dz ??= 1;
+    next.vz ??= 0;
+  } else {
+    delete next.nz;
+    delete next.dz;
+    delete next.Dz;
+    delete next.vz;
+    if (next.bc) {
+      next.bc = { ...next.bc };
+      delete next.bc.front;
+      delete next.bc.back;
+    }
+  }
+  return clampTimeStep(next);
+}
+export function dtMax({
+  vx = 0,
+  vy = 0,
+  dx = 1,
+  dy = 1,
+  D = 0,
+  nz = 1,
+  dz = 1,
+  Dz = D,
+  vz = 0,
+}: Conditions) {
+  const advection =
+    Math.abs(vx) / dx + Math.abs(vy) / dy + (nz > 1 ? Math.abs(vz) / dz : 0);
+  const diffusion = D / dx / dx + D / dy / dy + (nz > 1 ? Dz / dz / dz : 0);
+  const denominator = advection + 2 * diffusion;
   return denominator === 0 ? null : 1 / denominator;
+}
+export function clampTimeStep(model: Conditions): Conditions {
+  const limit = dtMax(model);
+  if (limit === null) return model;
+  // The volume solver evaluates the combined rate at higher precision. Stay a
+  // few ulps inside its limit when a JS intermediate rounds in our favor.
+  const safe = model.nz && model.nz > 1 ? limit * (1 - 4 * Number.EPSILON) : limit;
+  return model.dt > safe ? { ...model, dt: safe } : model;
 }
 export function makePlane(
   nx = 320,

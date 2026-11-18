@@ -1,7 +1,14 @@
-import { colorTable, pixels, type ColorMap, type Run } from '@/lib/model';
-import { framePlane } from './store';
+import {
+  colorTable,
+  pixels,
+  type FrameView,
+  type ColorMap,
+  type Run,
+} from '@/lib/model';
+import { projectedFrame } from './store';
 import { downsample } from './raster';
 type Options = {
+  view: FrameView;
   maxSide: number;
   fps: number;
   colormap: ColorMap;
@@ -15,7 +22,8 @@ export async function renderAnimation(
   progress: (value: number) => void,
 ) {
   const { fps, colormap, min, max, maxSide } = options;
-  const frame = (n: number) => downsample(framePlane(run, n), maxSide);
+  const frame = (n: number) =>
+    downsample(projectedFrame(run, n, options.view), maxSide);
   const first = frame(0),
     { nx, ny } = first;
   if (format === 'gif') {

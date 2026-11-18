@@ -1,4 +1,6 @@
 'use client';
+import dynamic from 'next/dynamic';
+import { initialView, frameView, SpatialControls } from '@/components/SpatialControls';
 import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -34,9 +36,10 @@ import {
   type Run,
   type Source,
   cleanRange,
+  withLayers,
 } from '@/lib/model';
 import { DrawingCanvas, DrawingControls, defaultBrush } from '@/components/Drawing';
-import { ConditionsForm } from '@/components/Conditions';
+import { ConditionsForm, NumberField } from '@/components/Conditions';
 import { Viewport } from '@/components/Viewport';
 import { Timeline } from '@/components/Timeline';
 import { UploadControls, useUploadPlane } from '@/components/Upload';
@@ -47,6 +50,14 @@ import { Output } from '@/components/Output';
 import { Sky } from '@/components/sky/Sky';
 import { History } from '@/components/History';
 
+const VolumePlayer = dynamic(() => import('@/components/VolumePlayer'), {
+  ssr: false,
+  loading: () => (
+    <div className="panel volume-stage" role="status">
+      Loading volume viewer…
+    </div>
+  ),
+});
 async function connect() {
   await window.startClimateMock?.();
   return checked(await api.GET('/config'));
@@ -83,6 +94,8 @@ export default function Workspace() {
     [readout, setReadout] = useState(''),
     [pollAttempt, retryPoll] = useState(0);
   const visualColumn = useRef<HTMLDivElement>(null);
+  const [spatial, setSpatial] = useState(initialView(1));
+  const [preset, setPreset] = useState<'gaussian_hotspot'>();
   const [pollError, setPollError] = useState('');
   const [presented, setPresented] = useState(-1),
     [autoplay, setAutoplay] = useState(false);
@@ -148,6 +161,7 @@ export default function Workspace() {
     reviewed.current = '';
   }
   function select(s: PlaneSelection) {
+    if (selection?.volume && !s.volume) setConditions((m) => withLayers(m, 1));
     setSelection(s);
     setFill(null);
     clearReview();
@@ -156,6 +170,7 @@ export default function Workspace() {
     setAutoplay(play && !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     setPresented(-1);
     setRun(r);
+    setSpatial(initialView(r.resolved.nz ?? 1));
     setN(0);
     setReadout('');
     setColors({ colormap: previewMap });
@@ -187,12 +202,14 @@ export default function Workspace() {
   }
   function edit(p: Plane) {
     setPlane(p);
+    setPreset(undefined);
     setPattern('Custom');
     clearReview();
   }
   const isExample = mode === 'draw' && examples.some((e) => e.name === pattern);
   const needFill =
-    !!stats?.missing_count && (fill === '' || !Number.isFinite(Number(fill)));
+    (!!stats?.missing_count && fill === '') ||
+    (fill !== '' && !Number.isFinite(Number(fill)));
   const canStart =
     !!config &&
     !busy &&
@@ -203,13 +220,22 @@ export default function Workspace() {
     setError('');
     try {
       let source: Source;
-      if (mode === 'draw') {
+      const { nz, ...solver } = conditions;
+      if (mode === 'draw' && preset) {
+        source = {
+          kind: 'preset',
+          preset,
+          nx: plane.nx,
+          ny: plane.ny,
+          ...(nz && { nz }),
+        };
+      } else if (mode === 'draw') {
         const field =
           saved.current?.plane === plane
             ? saved.current.field
             : await saveDrawing(plane, isExample ? pattern : undefined);
         saved.current = { plane, field };
-        source = { kind: 'field', field_id: field.id };
+        source = { kind: 'field', field_id: field.id, ...(nz && { replicate_z: nz }) };
       } else {
         if (!selection) return;
         source = {
@@ -217,12 +243,13 @@ export default function Workspace() {
           field_id: selection.field.id,
           var: selection.variable,
           index: selection.index,
-          ...((stats?.missing_count || !stats) && fill !== ''
+          ...(nz && (selection.volume ? { volume: true } : { replicate_z: nz })),
+          ...((stats?.missing_count || !stats || selection.volume) && fill !== ''
             ? { fill_value: Number(fill) }
             : {}),
         };
       }
-      const body = { ...conditions, source },
+      const body = { ...solver, source },
         signature = JSON.stringify(body);
       const validation = checked(await api.POST('/runs/validate', { body }));
       setWarnings(validation.warnings);
@@ -359,7 +386,10 @@ export default function Workspace() {
           </div>
           <span className="solver-tag">
             <Box size={15} />
-            2D solver
+            {(run ? run.resolved.nz > 1 : !!conditions.nz) && view === 'workspace'
+              ? '3D'
+              : '2D'}{' '}
+            solver
           </span>
         </div>
         {connError && (
@@ -396,6 +426,7 @@ export default function Workspace() {
                 exampleConditions(example, config.supported_boundary_conditions),
               );
               setBrush(defaultBrush);
+              setPreset(example.preset);
               setPattern(example.name);
               setMode('draw');
               setReadout('');
@@ -413,9 +444,30 @@ export default function Workspace() {
         ) : (
           <div className="workspace-grid">
             <div ref={visualColumn} className="visual-column">
-              {run ? (
-                <Player
+              {run && run.resolved.nz > 1 && (
+                <SpatialControls
+                  view={spatial}
+                  grid={run.resolved}
+                  change={(v) => {
+                    setSpatial(v);
+                    setPresented(-1);
+                    setReadout('');
+                  }}
+                />
+              )}
+              {run && spatial.mode === 'Volume' ? (
+                <VolumePlayer
                   key={run.id}
+                  run={run}
+                  n={n}
+                  colors={colors}
+                  range={range}
+                  onPresent={setPresented}
+                />
+              ) : run ? (
+                <Player
+                  key={run.id + JSON.stringify(spatial)}
+                  view={run.resolved.nz > 1 ? frameView(spatial) : undefined}
                   run={run}
                   n={n}
                   colors={colors}
@@ -533,6 +585,8 @@ export default function Workspace() {
                   {config && (
                     <Output
                       key={run.id}
+                      view={run.resolved.nz > 1 ? frameView(spatial) : undefined}
+                      volume={spatial.mode === 'Volume'}
                       run={run}
                       n={n}
                       colors={colors}
@@ -599,6 +653,8 @@ export default function Workspace() {
                             disabled={!config}
                             aria-pressed={mode === 'upload'}
                             onClick={() => {
+                              if (selection?.volume && variable)
+                                setConditions(withLayers(conditions, variable.nz));
                               setMode('upload');
                               setReadout('');
                               clearReview();
@@ -609,16 +665,48 @@ export default function Workspace() {
                           </button>
                         </div>
                         {mode === 'draw' ? (
-                          <DrawingControls
-                            plane={plane}
-                            change={edit}
-                            brush={brush}
-                            setBrush={setBrush}
-                            pattern={pattern}
-                            setPattern={setPattern}
-                          />
+                          <>
+                            {conditions.nz && (
+                              <p className="hint">
+                                {preset
+                                  ? 'Gaussian volume preset · central slice'
+                                  : 'Drawing repeated through the volume'}
+                              </p>
+                            )}
+                            <DrawingControls
+                              plane={plane}
+                              change={edit}
+                              brush={brush}
+                              setBrush={setBrush}
+                              pattern={pattern}
+                              setPattern={setPattern}
+                            />
+                            {!preset && (
+                              <NumberField
+                                label="Extrude to N layers"
+                                value={conditions.nz ?? 1}
+                                min={1}
+                                integer
+                                update={(nz) => {
+                                  if (isExample) setPattern('Custom');
+                                  setConditions(withLayers(conditions, nz!));
+                                  clearReview();
+                                }}
+                              />
+                            )}
+                          </>
                         ) : (
                           <UploadControls
+                            volume={!!(conditions.nz && selection?.volume)}
+                            onVolumeChange={(active) => {
+                              if (!selection || !variable) return;
+                              const index = { ...selection.index };
+                              if (variable.z_dim) delete index[variable.z_dim];
+                              select({ ...selection, index, volume: active });
+                              setConditions(
+                                withLayers(conditions, active ? variable.nz : 1),
+                              );
+                            }}
                             selection={selection}
                             select={select}
                             stats={stats}
@@ -651,9 +739,16 @@ export default function Workspace() {
                       </>
                     ) : config ? (
                       <ConditionsForm
+                        volumeLayers={
+                          mode === 'upload' && selection?.volume
+                            ? variable?.nz
+                            : undefined
+                        }
                         model={conditions}
                         change={(m) => {
                           setConditions(m);
+                          if (!m.nz && selection?.volume)
+                            select({ ...selection, volume: false });
                           if (isExample) setPattern('Custom');
                           clearReview();
                         }}
@@ -714,7 +809,7 @@ export default function Workspace() {
           </span>
           <span>
             <BookOpen size={13} />
-            API v1.2.0
+            API v1.3.0
           </span>
         </footer>
       </main>

@@ -1147,3 +1147,64 @@ input[type='range'] {
     gap: 7px;
   }
 }
+
+.spatial-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+}
+.spatial-inputs {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+  align-items: end;
+}
+.spatial-inputs label:last-child {
+  flex: 1;
+}
+.volume-stage {
+  position: relative;
+  height: clamp(260px, 37vw, 460px);
+  overflow: hidden;
+  background: #151419;
+}
+.volume-stage .plot-message {
+  position: absolute;
+  inset: 0;
+}
+.volume-scene,
+.volume-scene canvas {
+  width: 100%;
+  height: 100%;
+}
+.volume-scene canvas {
+  cursor: grab;
+  display: block;
+  touch-action: none;
+}
+.volume-axis {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  color: var(--accent);
+  font: 12px var(--mono);
+  pointer-events: none;
+}
+.volume-settings {
+  padding: 12px 18px 0;
+}
+.vertical-flow {
+  margin-left: auto;
+  align-items: center;
+}
+.vertical-flow input[type='range'] {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 24px;
+  height: 65px;
+}
+.spatial-controls .segmented button {
+  flex: 0 0 auto;
+  padding-inline: 13px;
+}

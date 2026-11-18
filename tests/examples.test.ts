@@ -14,7 +14,23 @@ it.each(examples)(
     expect(m.dt).toBeLessThanOrEqual(dtMax(m)!);
     expect(m.frames).toBeGreaterThan(20);
     expect(Object.values(exampleConditions(example, ['dirichlet']).bc!)).toEqual(
-      Array(4).fill('dirichlet'),
+      Array(example.nz ? 6 : 4).fill('dirichlet'),
     );
   },
 );
+it('provides distinct 3D sources with a small solver workload', () => {
+  const volumes = examples.filter((e) => e.nz);
+  expect(volumes).toHaveLength(2);
+  const [plume, ring] = volumes;
+  expect(plume.preset).toBe('gaussian_hotspot');
+  expect(exampleConditions(plume, ['periodic', 'neumann'])).toMatchObject({
+    vz: 0.65,
+    bc: { left: 'periodic', right: 'periodic' },
+  });
+  expect(ring.preset).toBeUndefined();
+  expect(ring.intensity(0.5, 0.5, 0)).toBeLessThan(ring.intensity(0.78, 0.5, 0));
+  for (const e of volumes) {
+    const { nx, ny } = examplePlane(e);
+    expect(nx * ny * e.nz! * exampleConditions(e, ['neumann']).steps).toBeLessThan(4e6);
+  }
+});

@@ -269,6 +269,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/runs/{runId}/frames/{n}/volume': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        runId: components['parameters']['RunId'];
+        n: components['parameters']['FrameIndex'];
+      };
+      cookie?: never;
+    };
+    /** Sample one frame for client-side 3D rendering. */
+    get: operations['getFrameVolume'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/runs/{runId}/export.{format}': {
     parameters: {
       query?: never;
@@ -298,7 +318,7 @@ export interface paths {
       };
       cookie?: never;
     };
-    /** Raw engine output (CDF-5, u(time, y, x)). Only when status is done. */
+    /** Raw engine output (CDF-5, u(time, y, x) or u(time, z, y, x)). Only when status is done. */
     get: operations['downloadResult'];
     put?: never;
     post?: never;
@@ -431,6 +451,10 @@ export interface components {
       name: string;
       nx: number;
       ny: number;
+      /** @description Size of the vertical dimension or 1 when absent */
+      nz: number;
+      /** @description Name of the vertical dimension when present */
+      z_dim?: string;
       extra_dims: components['schemas']['ExtraDim'][];
       units?: string | null;
       long_name?: string | null;
@@ -485,7 +509,17 @@ export interface components {
       index?: {
         [key: string]: number;
       };
-      /** @description Replaces missing cells. Required (422 otherwise) when the selected plane has missing cells. */
+      /**
+       * @description Select all layers when the third-to-last dimension is vertical. Otherwise use the selected plane.
+       * @default false
+       */
+      volume?: boolean;
+      /**
+       * @description Number of layers to initialize from a selected plane (including a drawing). Applies to planes only.
+       * @default 1
+       */
+      replicate_z?: number;
+      /** @description Replaces missing cells. Required (422 otherwise) when the selected plane or volume has missing cells. */
       fill_value?: number | null;
     };
     PresetSource: {
@@ -497,6 +531,8 @@ export interface components {
       preset: components['schemas']['Preset'];
       nx: number;
       ny: number;
+      /** @default 1 */
+      nz?: number;
     };
     RunSource:
       components['schemas']['FieldSource'] | components['schemas']['PresetSource'];
@@ -506,6 +542,8 @@ export interface components {
       right?: components['schemas']['BoundaryCondition'];
       bottom?: components['schemas']['BoundaryCondition'];
       top?: components['schemas']['BoundaryCondition'];
+      front?: components['schemas']['BoundaryCondition'];
+      back?: components['schemas']['BoundaryCondition'];
     };
     RunRequest: {
       source: components['schemas']['RunSource'];
@@ -513,6 +551,12 @@ export interface components {
       dx?: number;
       /** @default 1 */
       dy?: number;
+      /** @default 1 */
+      dz?: number;
+      /** @description Vertical diffusion coefficient. Defaults to D. */
+      Dz?: number;
+      /** @default 0 */
+      vz?: number;
       /**
        * @description Diffusion coefficient
        * @default 0
@@ -529,19 +573,21 @@ export interface components {
       /** @description Frames to keep (incl. initial and final). Default 101 when neither is given. */
       frames?: number;
       bc?: components['schemas']['BoundaryConfig'];
-      /** @description MPI ranks. Omitted → default_processes, automatically reduced so the MPI_Dims_create grid fits nx and ny. An explicit value that does not fit, or exceeds cpu_count, is rejected. */
+      /** @description MPI ranks. Omitted → default_processes, automatically reduced so the MPI_Dims_create grid fits nx and ny. For volumes, all ranks must fit a Cartesian factorization across nx, ny and nz. An explicit value that does not fit, or exceeds cpu_count, is rejected. */
       processes?: number;
     };
     ResolvedRun: {
       nx: number;
       ny: number;
+      nz: number;
+      dz: number;
       dt: number;
       steps: number;
       out_every: number;
       expected_frames: number;
       processes: number;
       dt_max: number | null;
-      /** @description ≈ 8·nx·ny·expected_frames + header */
+      /** @description ≈ 8·nx·ny·nz·expected_frames + header */
       estimated_output_bytes: number;
     };
     RunValidation: {
@@ -739,6 +785,12 @@ export interface components {
     NowcastId: string;
     FieldId: string;
     RunId: string;
+    /** @description Axis perpendicular to the view */
+    Axis: 'z' | 'y' | 'x';
+    /** @description Zero-based layer along axis, default floor(axis length / 2). Ignored for projections. */
+    Slice: number;
+    /** @description Reduce along the selected axis */
+    Projection: 'none' | 'max' | 'mean';
     FrameIndex: number;
     /** @description Variable name; defaults to Field.default_var. */
     Var: string;
@@ -1223,6 +1275,12 @@ export interface operations {
   getFramePng: {
     parameters: {
       query?: {
+        /** @description Axis perpendicular to the view */
+        axis?: components['parameters']['Axis'];
+        /** @description Zero-based layer along axis, default floor(axis length / 2). Ignored for projections. */
+        slice?: components['parameters']['Slice'];
+        /** @description Reduce along the selected axis */
+        projection?: components['parameters']['Projection'];
         colormap?: components['parameters']['Colormap'];
         /** @description Must be given with vmax; finite and vmin < vmax */
         vmin?: components['parameters']['Vmin'];
@@ -1272,6 +1330,12 @@ export interface operations {
   getFrameValues: {
     parameters: {
       query?: {
+        /** @description Axis perpendicular to the view */
+        axis?: components['parameters']['Axis'];
+        /** @description Zero-based layer along axis, default floor(axis length / 2). Ignored for projections. */
+        slice?: components['parameters']['Slice'];
+        /** @description Reduce along the selected axis */
+        projection?: components['parameters']['Projection'];
         i0?: components['parameters']['I0'];
         j0?: components['parameters']['J0'];
         /** @description Window width in cells (default to the edge) */
@@ -1296,9 +1360,46 @@ export interface operations {
       422: components['responses']['ValidationError'];
     };
   };
+  getFrameVolume: {
+    parameters: {
+      query?: {
+        max_side?: number;
+      };
+      header?: never;
+      path: {
+        runId: components['parameters']['RunId'];
+        n: components['parameters']['FrameIndex'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Little-endian float32 in row-major [z, y, x] order, x fastest. All axes start at zero and use stride ceil(max(nx, ny, nz) / max_side). The headers give the sampled dimensions. A single-layer run has X-Nz = 1. */
+      200: {
+        headers: {
+          'X-Nx'?: number;
+          'X-Ny'?: number;
+          'X-Nz'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/octet-stream': unknown;
+        };
+      };
+      404: components['responses']['MessageError'];
+      409: components['responses']['MessageError'];
+      422: components['responses']['ValidationError'];
+    };
+  };
   exportRun: {
     parameters: {
       query?: {
+        /** @description Axis perpendicular to the view */
+        axis?: components['parameters']['Axis'];
+        /** @description Zero-based layer along axis, default floor(axis length / 2). Ignored for projections. */
+        slice?: components['parameters']['Slice'];
+        /** @description Reduce along the selected axis */
+        projection?: components['parameters']['Projection'];
         fps?: number;
         colormap?: components['parameters']['Colormap'];
         /** @description Must be given with vmax; finite and vmin < vmax */
