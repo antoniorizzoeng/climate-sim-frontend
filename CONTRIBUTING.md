@@ -37,9 +37,7 @@ Thank you for considering contributing to climate-sim-frontend!
 
 ## Testing
 
-If you later add tests (e.g., Jest or Playwright):
-npm run test
-npm run test:coverage
+Vitest covers component and model behaviour. Playwright exercises the workspace with the browser mock. The CI workflow runs both suites. [Test scripts](package.json)
 
 Pull requests should include or update relevant tests.
 
